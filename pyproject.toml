@@ -1,0 +1,23 @@
+[project]
+name = "callan-nebula-solver"
+version = "0.1.0"
+description = "Jigsaw puzzle solver for the Callan Nebula puzzle"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "matplotlib",
+    "scipy",
+    "scikit-image",
+    "scikit-learn",
+    "networkx",
+    "pillow",
+    "pyqt5==5.15.10",
+    "pyqt5-qt5==5.15.2",
+]
+
+[dependency-groups]
+dev = [
+    "jupyter",
+    "jupyterlab",
+]

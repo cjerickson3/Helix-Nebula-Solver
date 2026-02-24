@@ -1,5 +1,29 @@
+# Virtual environments
+.venv/
+myenv/
 
-myenv
-.vscode
-mycode
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+mycode/
+
+# Resources (large image data)
+resources/
+
+# Old junk files
+mypackages.txt
+myreq.txt
+newre.txt
+previous
+requhold.txt
+requirements-before-compile
+requirements.txt.bak
+
+# Windows
+desktop.ini
+Thumbs.db
