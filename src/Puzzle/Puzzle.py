@@ -29,6 +29,7 @@ class Puzzle():
 
         self.pieces_ = None
         factor = 0.40
+        self.corner_pos = []
         while self.pieces_ is None:
             factor += 0.01
             self.extract = Extractor(path, viewer, green_screen, factor)
@@ -47,77 +48,26 @@ class Puzzle():
         self.extremum = (-1, -1, 1, 1)
         self.log('>>> START solving puzzle')
 
-        border_pieces = []
-        non_border_pieces = []
         connected_pieces = []
-        # Separate border pieces from the other
-        for piece in self.pieces_:
-            if piece.number_of_border():
-                border_pieces.append(piece)
-            else:
-                non_border_pieces.append(piece)
 
-        self.possible_dim = self.compute_possible_size(len(self.pieces_), len(border_pieces))
+    # Treat all pieces equally without prioritizing borders
+        self.possible_dim = self.compute_possible_size(len(self.pieces_), 0)
+        connected_pieces = [self.pieces_.pop(0)]  # Start with the first piece
 
-        # Start by a corner piece
-        for piece in border_pieces:
-            if piece.number_of_border() > 1:
-                connected_pieces = [piece]
-                border_pieces.remove(piece)
-                break
-        self.log("Number of border pieces: ", len(border_pieces) + 1)
+        self.log("Total pieces: ", len(self.pieces_) + 1)
 
         self.export_pieces('/tmp/stick{0:03d}'.format(1) + ".png",
-                           '/tmp/colored{0:03d}'.format(1) + ".png",
-                           'Border types'.format(1),
-                           'Step {0:03d}'.format(1), display_border=True)
+                       '/tmp/colored{0:03d}'.format(1) + ".png",
+                       'Initial placement'.format(1),
+                       'Step {0:03d}'.format(1), display_border=True)
 
-        self.log('>>> START solve border')
-        start_piece = connected_pieces[0]
-        self.corner_pos = [((0, 0), start_piece)]  # we start with a corner
-
-        for i in range(4):
-            if start_piece.edge_in_direction(Directions.S).connected and start_piece.edge_in_direction(Directions.W).connected:
-                break
-            start_piece.rotate_edges(1)
-
-        self.extremum = (0, 0, 1, 1)
-
-        self.strategy = Strategy.BORDER
-        connected_pieces = self.solve(connected_pieces, border_pieces)
-        self.log('>>> START solve middle')
-        self.strategy = Strategy.FILL
-        self.solve(connected_pieces, non_border_pieces)
+        self.log('>>> START solving puzzle')
+        self.strategy = Strategy.FILL  # Only fill strategy
+        self.solve(connected_pieces, self.pieces_)
 
         self.log('>>> SAVING result...')
         self.translate_puzzle()
         self.export_pieces("/tmp/stick.png", "/tmp/colored.png", display=True)
-
-
-        # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
-        # The first piece has an orientation like that:
-        #         N          edges:    0
-        #      W     E              3     1
-        #         S                    2
-        #
-        # Pieces are placed on a grid like that (X is the first piece at position (0, 0)):
-        # +--+--+--+
-        # |  |  |  |
-        # +--+--+--+
-        # |  | X|  |
-        # +--+--+--+
-        # |  |  |  |
-        # +--+--+--+
-        #
-        # Then if we test the NORTH edge:
-        # +--+--+--+
-        # |  | X|  |
-        # +--+--+--+
-        # |  | X|  |
-        # +--+--+--+
-        # |  |  |  |
-        # +--+--+--+
-        # Etc until the puzzle is complete i.e. there is no pieces left on left_pieces.
 
     def solve(self, connected_pieces, left_pieces, border=False):
         """
@@ -442,8 +392,8 @@ class Puzzle():
                 minX, minY = min(minX, x), min(minY, y)
                 maxX, maxY = max(maxX, x), max(maxY, y)
 
-        colored_img = np.zeros((maxX - minX, maxY - minY, 3))
-        border_img = np.zeros((maxX - minX, maxY - minY, 3))
+        colored_img = np.zeros((int(maxX - minX), int(maxY - minY), 3))
+        border_img = np.zeros((int(maxX - minX), int(maxY - minY), 3))
 
         for piece in self.pieces_:
             for p in piece.img_piece_:
