@@ -44,6 +44,12 @@ class Extractor():
             # rescale self.img and self.img_bw to 640
         else:
             self.img_bw = cv2.imread(self.path, cv2.IMREAD_GRAYSCALE)
+            if self.img.shape[1] > 1000:
+                divFactor = 1 / (self.img.shape[1] / 1024)
+                print(self.img.shape)
+                print('Resizing with factor', divFactor)
+                self.img = cv2.resize(self.img, (0, 0), fx=divFactor, fy=divFactor)
+                self.img_bw = cv2.resize(self.img_bw, (0, 0), fx=divFactor, fy=divFactor)
         self.viewer = viewer
         self.green_ = green_screen
         self.kernel_ = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -77,9 +83,19 @@ class Extractor():
                 cv2.drawContours(self.img_bw, [cnt], 0, 255, -1)
 
         def generated_preprocesing():
-            ret, self.img_bw = cv2.threshold(self.img_bw, 254, 255, cv2.THRESH_BINARY_INV)
+            blur_k = self.img_bw.shape[1] // 200
+            if blur_k % 2 == 0:
+                blur_k += 1
+            if blur_k < 3:
+                blur_k = 3
+            self.img_bw = cv2.GaussianBlur(self.img_bw, (blur_k, blur_k), 0)
+            ret, self.img_bw = cv2.threshold(self.img_bw, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             cv2.imwrite("/tmp/otsu_binarized.png", self.img_bw)
-            self.img_bw = cv2.morphologyEx(self.img_bw, cv2.MORPH_CLOSE, kernel)                
+            close_k = self.img_bw.shape[1] // 120
+            if close_k < 3:
+                close_k = 3
+            close_kernel = np.ones((close_k, close_k), np.uint8)
+            self.img_bw = cv2.morphologyEx(self.img_bw, cv2.MORPH_CLOSE, close_kernel)
             self.img_bw = cv2.morphologyEx(self.img_bw, cv2.MORPH_OPEN, kernel)
             
            
