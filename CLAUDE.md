@@ -2,9 +2,8 @@
 
 ## Project Path
 ```
-C:/Users/chris/Documents/Puzzzles/Callan_Nebula/Solver/
+C:/Users/chris/Documents/Puzzles/Callan_Nebula/Solver/
 ```
-Note the triple-z in `Puzzzles` — that's correct.
 
 ## Environment Setup
 uv is installed at `~/.local/bin` and may not be on PATH in a fresh shell. Always run:
