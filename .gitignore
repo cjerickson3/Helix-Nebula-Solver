@@ -27,3 +27,4 @@ requirements.txt.bak
 # Windows
 desktop.ini
 Thumbs.db
+.claude/
