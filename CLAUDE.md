@@ -30,7 +30,7 @@ Output images go to `C:\tmp\stick*.png`, `C:\tmp\colored*.png`.
 `/tmp` which maps to `C:\Users\chris\AppData\Local\Temp`.
 
 ## GitHub
-- Repo: `https://github.com/cjerickson3/callan-nebula-solver` (note: repo name still uses old working title)
+- Repo: `https://github.com/cjerickson3/Helix-Nebula-Solver`
 - `main` — stable working solver on small Helix Nebula test image
 - `larger-puzzle` — WIP branch for the full-size puzzle
 
@@ -48,11 +48,11 @@ Solver/
 │   ├── Puzzle/
 │   │   ├── Puzzle.py        # Core solving engine (border-first, then fill)
 │   │   ├── PuzzlePiece.py   # Piece model (edges, position, type)
-│   │   ├── Edge.py          # Edge model (shape, color, HOLE/HEAD/BORDER)
+│   │   ├── Edge.py          # Edge model (shape, color, BLANK/TAB/BORDER)
 │   │   ├── Distance.py      # Edge-matching distance functions
 │   │   ├── Mover.py         # Piece alignment and rotation
 │   │   ├── Extractor.py     # Contour → PuzzlePiece pipeline
-│   │   ├── Enums.py         # Direction, TypeEdge, TypePiece, Strategy
+│   │   ├── Enums.py         # Direction, TypeEdge (TAB/BLANK/BORDER), TypePiece, Strategy
 │   │   └── tuple_helper.py  # Grid coordinate utilities
 │   └── Img/
 │       ├── filters.py       # Corner detection, edge classification
@@ -74,7 +74,7 @@ Solver/
 - Gaussian blur → Otsu auto-threshold → morphological close/open → contour detection
 - Small/noise contours discarded; pieces kept if area > 1/3 of second-largest contour
 - Corner detection: relative angles along boundary, Gaussian-smoothed, peaks found at sigma=5
-- Each of 4 edges classified: **BORDER** (flat), **HOLE** (inward tab), **HEAD** (outward tab)
+- Each of 4 edges classified: **BORDER** (flat), **BLANK** (inward socket), **TAB** (outward tab)
 
 **Key constants:**
 - Resize target: 1024px wide for real photos, 640px for green-screen
@@ -104,10 +104,10 @@ Grid dimensions estimated from border piece count: find all `(w, h)` where `b = 
 ---
 
 ## Piece Terminology
-- **Tab** = protrusion that sticks out (HEAD)
-- **Blank** = indentation/socket (HOLE)
+- **Tab** = protrusion that sticks out (TAB)
+- **Blank** = indentation/socket (BLANK)
 - **Border** = flat edge (puzzle boundary)
-- **Topology** = the pattern of tabs/blanks on a piece's 4 edges, e.g. `[HEAD, HOLE, BORDER, HEAD]`
+- **Topology** = the pattern of tabs/blanks on a piece's 4 edges, e.g. `[TAB, BLANK, BORDER, HEAD]`
 - **Excel-style labeling**: A1=upper-left, B1=upper-right, A2=lower-left, B2=lower-right
 
 ---
@@ -116,7 +116,7 @@ Grid dimensions estimated from border piece count: find all `(w, h)` where `b = 
 - **14 pages** of pieces cataloged by topology in a binder
 - **Border completed** on the physical puzzle
 - **Regional assemblies** in progress: Upper Left Nebula, various loose assemblies
-- **Missing:** one "castle piece" (3-tab/1-blank topology) needed for the transition zone hole —
+- **Missing:** one "castle piece" (3-TAB/1-BLANK topology) needed for the transition zone hole —
   likely in the unsorted black piece pile
 - Pieces are iridescent/teal with dark background — challenging for CV due to specular highlights
 
@@ -128,17 +128,229 @@ The key bottleneck is O(pieces × rotations × neighbors) matching. The plan is 
 as a pre-filter to reduce the candidate pool before any expensive CV matching runs.
 
 ### Pre-filtering pipeline (most to least aggressive filter):
-1. **Topology filter** — only compare edges where HEAD meets HOLE (eliminates ~75% of candidates)
+1. **Topology filter** — only compare edges where TAB meets BLANK (eliminates ~75% of candidates)
 2. **Color region filter** — match pieces whose color signature fits the target zone
    (teal, dark red, transition zone, etc.)
 3. **Shape pre-check** — fast geometric comparison before full CV
 4. **Full CV match** — `Distance.py` only runs on survivors
 
-### Planned SQLite schema (not yet built):
+### Generalized SQLite Schema (v2 — designed for multi-puzzle use)
+
+The schema is designed to be **puzzle-agnostic** — any puzzle can be loaded as a `puzzle` record,
+and pieces/edges/descriptors hang off that. Descriptor tracks are optional per-piece; the solver
+uses whatever is available.
+
+```sql
+-- Top-level puzzle registry
+CREATE TABLE puzzles (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,          -- e.g. "Helix Nebula 2000pc"
+    width_pieces    INTEGER,                -- grid dimensions if known
+    height_pieces   INTEGER,
+    image_path      TEXT,                   -- reference solved image (if available)
+    -- Astrometry fields (NULL for non-astronomical puzzles)
+    ra_center       REAL,                   -- RA of image center (degrees)
+    dec_center      REAL,                   -- Dec of image center (degrees)
+    pixel_scale     REAL,                   -- arcsec/pixel of reference image
+    wcs_fits_path   TEXT,                   -- path to WCS FITS file if obtained
+    notes           TEXT
+);
+
+-- Page photos: one record per 3x3 grid photo (up to 9 pieces per page)
+-- Filename convention: helix_p{page:03d}.jpg e.g. helix_p007.jpg
+CREATE TABLE page_photos (
+    id              INTEGER PRIMARY KEY,
+    puzzle_id       INTEGER REFERENCES puzzles(id),
+    page_number     INTEGER NOT NULL,
+    image_path      TEXT NOT NULL,          -- full path to original 3x3 page photo
+    photographed_at TIMESTAMP,
+    piece_count     INTEGER,                -- how many pieces on this page (1-9)
+    notes           TEXT,
+    UNIQUE(puzzle_id, page_number)
+);
+
+-- One record per physical puzzle piece
+-- Human-readable piece ID: "{page}-{cell}" e.g. "7-C3"
+CREATE TABLE pieces (
+    id              INTEGER PRIMARY KEY,
+    puzzle_id       INTEGER REFERENCES puzzles(id),
+    -- Physical cataloging
+    page_photo_id   INTEGER REFERENCES page_photos(id),
+    binder_page     INTEGER NOT NULL,
+    binder_position TEXT NOT NULL,          -- Excel-style cell: A1-C3
+    piece_label     TEXT GENERATED ALWAYS AS
+                    (binder_page || '-' || binder_position) STORED,  -- e.g. "7-C3"
+    image_path      TEXT,                   -- path to cropped individual piece image
+    -- Topology (tab/blank/border pattern)
+    topology        TEXT,                   -- e.g. "TAB,BLANK,BORDER,TAB" (N,E,S,W order)
+    n_tabs         INTEGER,
+    n_blanks         INTEGER,
+    n_borders       INTEGER,
+    piece_type      TEXT,                   -- CORNER, EDGE, INTERIOR
+    -- Orientation (for puzzles where up/down is determinable)
+    orientation_known   INTEGER DEFAULT 0,  -- 1 if we know which way is "up" for this piece
+    north_edge      TEXT,                   -- TAB, BLANK, or BORDER (when orientation known)
+    east_edge       TEXT,
+    south_edge      TEXT,
+    west_edge       TEXT,
+    -- Placement
+    grid_col        INTEGER,
+    grid_row        INTEGER,
+    placement_confidence REAL,
+    placement_method TEXT,                  -- "astrometry","color","edge_match","pattern","human"
+    notes           TEXT,
+    UNIQUE(puzzle_id, binder_page, binder_position)
+);
+
+-- All detected bright point sources on a piece (stars + nebula knots)
+-- Distinct from piece_stars which only contains Gaia-matched catalogued stars
+CREATE TABLE piece_light_sources (
+    id              INTEGER PRIMARY KEY,
+    piece_id        INTEGER REFERENCES pieces(id),
+    pixel_x         REAL,
+    pixel_y         REAL,
+    zone            TEXT,                   -- 3x3 zone "00"-"22" (col-row, top-left=00)
+    flux            REAL,                   -- brightness normalized 0-1
+    fwhm            REAL,                   -- point source size in pixels (small=star-like)
+    is_point_source INTEGER,                -- 1=star-like, 0=extended nebula knot
+    color_b_r       REAL,                   -- blue-red index (stars=blue/positive, knots~0)
+    gaia_source_id  TEXT,                   -- Gaia DR3 source ID if matched (else NULL)
+    gaia_magnitude  REAL                    -- Gaia G-band magnitude if matched (else NULL)
+);
+
+-- Four edges per piece
+CREATE TABLE edges (
+    id              INTEGER PRIMARY KEY,
+    piece_id        INTEGER REFERENCES pieces(id),
+    direction       TEXT,                   -- NORTH, SOUTH, EAST, WEST
+    edge_type       TEXT,                   -- TAB, BLANK, BORDER
+    shape_blob      BLOB,                   -- sampled contour points (numpy array)
+    color_blob      BLOB,                   -- LAB color samples along edge
+    -- Matching results
+    best_match_edge_id  INTEGER REFERENCES edges(id),
+    match_score     REAL                    -- lower = better match
+);
+
+-- Color summary descriptor (global per piece)
+CREATE TABLE piece_colors (
+    id              INTEGER PRIMARY KEY,
+    piece_id        INTEGER REFERENCES pieces(id),
+    region_label    TEXT,                   -- e.g. "teal_nebula", "dark_void", "red_center"
+    lab_l_mean      REAL,
+    lab_a_mean      REAL,
+    lab_b_mean      REAL,
+    lab_l_std       REAL,
+    lab_a_std       REAL,
+    lab_b_std       REAL,
+    dominant_hue    REAL,                   -- HSV hue 0-360
+    -- Color gradient: captures directionality of color change across the piece
+    gradient_magnitude  REAL,              -- how strong the color transition is (0=uniform)
+    gradient_angle_deg  REAL,              -- direction brightest->darkest (0=right, 90=up)
+    -- Spatial color fingerprint: 3x3 sub-region grid, dominant hue + lightness per zone
+    -- Zones numbered col-row: z00=top-left z10=top-center z20=top-right etc.
+    zone_00_hue REAL, zone_00_lab_l REAL,  -- top-left
+    zone_10_hue REAL, zone_10_lab_l REAL,  -- top-center
+    zone_20_hue REAL, zone_20_lab_l REAL,  -- top-right
+    zone_01_hue REAL, zone_01_lab_l REAL,  -- mid-left
+    zone_11_hue REAL, zone_11_lab_l REAL,  -- center
+    zone_21_hue REAL, zone_21_lab_l REAL,  -- mid-right
+    zone_02_hue REAL, zone_02_lab_l REAL,  -- bottom-left
+    zone_12_hue REAL, zone_12_lab_l REAL,  -- bottom-center
+    zone_22_hue REAL, zone_22_lab_l REAL   -- bottom-right
+);
+
+-- Human-assigned visual pattern tags (controlled vocabulary)
+-- One row per pattern recognized on a piece — a piece can have multiple patterns
+CREATE TABLE piece_patterns (
+    id              INTEGER PRIMARY KEY,
+    piece_id        INTEGER REFERENCES pieces(id),
+    pattern_type    TEXT NOT NULL,          -- category from controlled vocabulary (see below)
+    pattern_value   TEXT,                   -- specific value within that category
+    location_zone   TEXT,                   -- which 3x3 zone: "00","10","20","01","11" etc.
+    confidence      REAL,                   -- 1.0=certain human, <1.0=inferred by CV or LLM
+    assigned_by     TEXT,                   -- "human", "cv", "llm"
+    notes           TEXT
+);
+-- Controlled vocabulary for pattern_type/pattern_value:
+--   structural:   fence, roof, stair, arch, window, column, wall, horizon
+--   astronomical: star_bright, star_faint, nebula_filament, nebula_knot, void_boundary
+--   color_event:  color_transition, bright_spot, dark_spot, gradient_peak
+--   texture:      smooth, granular, wispy, sharp_edge, diffuse
+--   landmark:     puzzle-specific e.g. "red_center_boundary", "outer_ring_edge"
+
+-- Astrometry descriptor (only populated for astronomical puzzles)
+CREATE TABLE piece_stars (
+    id              INTEGER PRIMARY KEY,
+    piece_id        INTEGER REFERENCES pieces(id),
+    -- Star position in piece photo (pixels)
+    pixel_x         REAL,
+    pixel_y         REAL,
+    -- Sky coordinates (from Gaia cross-match)
+    ra              REAL,                   -- degrees
+    dec             REAL,                   -- degrees
+    gaia_source_id  TEXT,                   -- Gaia DR3 source ID
+    gaia_magnitude  REAL,                   -- G-band magnitude
+    -- Derived placement constraint
+    implied_grid_col    REAL,               -- fractional grid position implied by this star
+    implied_grid_row    REAL,
+    position_residual   REAL                -- fit quality vs WCS model (arcsec)
+);
+
+-- Controlled vocabulary: terms are puzzle-specific, defined once when puzzle is set up
+-- piece_patterns.pattern_value must exist here — enforces consistency across all pieces
+CREATE TABLE pattern_vocabulary (
+    id              INTEGER PRIMARY KEY,
+    puzzle_id       INTEGER REFERENCES puzzles(id),
+    pattern_type    TEXT NOT NULL,          -- broad category: "landmark", "texture", "astronomical"
+    pattern_value   TEXT NOT NULL,          -- the actual tag used in piece_patterns
+    description     TEXT,                   -- human-readable definition
+    color_hint      TEXT,                   -- approximate color (for UI display e.g. "#00CED1")
+    display_order   INTEGER,                -- suggested order for UI dropdowns
+    UNIQUE(puzzle_id, pattern_type, pattern_value)
+);
+-- Example rows for Helix Nebula puzzle (puzzle_id=1):
+-- pattern_type  | pattern_value       | description
+-- --------------+---------------------+------------------------------------------
+-- landmark      | red_center          | Bright red/orange central region (the pupil)
+-- landmark      | dark_void           | Dark inner void with radial filaments
+-- landmark      | teal_ring_inner     | Inner edge of the teal nebula ring
+-- landmark      | teal_ring_outer     | Outer edge of the teal nebula ring
+-- landmark      | transition_zone     | Where teal fades into dark background
+-- landmark      | dark_background     | Outer dark field containing background stars
+-- landmark      | outer_halo          | Faint wispy teal at image periphery
+-- texture       | radial_filament     | Spoke-like filament pointing toward center
+-- texture       | wispy               | Soft diffuse nebula texture
+-- texture       | granular            | Coarse mottled texture in bright regions
+-- astronomical  | star_bright         | Clearly visible bright background star
+-- astronomical  | star_faint          | Faint but detectable background star
+
+-- Generic extensible descriptor table for future use
+-- (e.g. shape moments, texture descriptors, feature vectors)
+CREATE TABLE piece_descriptors (
+    id              INTEGER PRIMARY KEY,
+    piece_id        INTEGER REFERENCES pieces(id),
+    descriptor_type TEXT,                   -- e.g. "hu_moments", "orb_features", "edge_fft"
+    descriptor_blob BLOB,                   -- serialized numpy array or JSON
+    computed_at     TIMESTAMP
+);
+
+-- Useful indexes
+CREATE INDEX idx_pieces_topology ON pieces(puzzle_id, topology);
+CREATE INDEX idx_pieces_grid ON pieces(puzzle_id, grid_col, grid_row);
+CREATE INDEX idx_piece_stars_gaia ON piece_stars(gaia_source_id);
+CREATE INDEX idx_edges_piece ON edges(piece_id, direction);
+CREATE INDEX idx_patterns_piece ON piece_patterns(piece_id, pattern_type);
+CREATE INDEX idx_vocab_puzzle ON pattern_vocabulary(puzzle_id, pattern_type);
 ```
-pieces (id, page, position, topology, color_region, image_path, notes)
-edges  (piece_id, direction, type, shape_blob, color_blob)
-```
+
+### Key design decisions
+- **puzzle_id foreign key everywhere** — same codebase handles multiple puzzles cleanly
+- **placement_method field** — records which descriptor track solved each piece; great for analytics
+- **piece_stars table** — each star on a piece gets its own row; a piece with 3 stars gets 3 rows,
+  each independently implying a grid position — agreement between them = high confidence
+- **piece_descriptors** — open-ended overflow table for future descriptor types without schema changes
+- **placement_confidence** — lets solver prioritize high-confidence placements first and flag
+  low-confidence ones for human review
 
 ### Light-box photography pipeline:
 - iPhone photos taken in light box with dark background
@@ -203,21 +415,23 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 - Job **FAILED** to plate-solve — reason: too much noise from white mat border and loose pieces confusing the star detector; also searched blind (no coordinate hint given)
 - Candidate solution briefly found at RA=215.678, Dec=9.762 — this is a false match (Helix is at RA=337.4, Dec=-20.8)
 
-**What to do next session:**
-1. Open `cropped_for_astrometry.jpg` in **GIMP**
-2. Use Fuzzy Select to paint white mat area **black**
-3. Paint loose pieces **black**
-4. Optional: boost brightness slightly with `Colors → Curves` to make faint stars pop
-5. Resubmit to `nova.astrometry.net` with these **critical settings**:
-   - RA = 337.4, Dec = -20.8, Radius = 2 degrees
-   - Scale: 0.5 to 2.0 arcsec/pixel
-6. Download `corr.fits` and `wcs.fits` from the successful solve
-7. Begin writing puzzle placement code using star positions
+**Astrometry.net final status — SOLVED but files inaccessible:**
+- Used Grok AI to clean up image → black background, no mat, no loose pieces → `Helix_black.jpg`
+- Resubmitted with coordinate hints: RA=337.4, Dec=-20.8, Radius=2.0, parity=neg, use-source-extractor
+- Job **15297948**, Submission **14463107** → **SOLVER COMPLETED SUCCESSFULLY** ✓
+- WCS file confirmed written to server
+- File download endpoints returning 500/403 errors — Astrometry.net server flakiness
+- Decision: **abandon Astrometry.net, move to local Gaia DR3 approach**
 
-**Helix Nebula coordinates:** RA = 337.4°, Dec = -20.8° (constellation Aquarius)
+**Next approach — Gaia DR3 + astroquery (fully local, no CPU limits):**
+- Query Gaia DR3 catalog directly for all stars within ~1° of Helix Nebula center
+- Cross-match against stars detected in puzzle piece photos using `photutils`
+- No external service needed, integrates directly into solver pipeline
+- Helix Nebula center: **RA=337.4°, Dec=-20.8°** (constellation Aquarius)
 
 **Files:**
-- `cropped_for_astrometry.jpg` — already cropped, needs GIMP cleanup before resubmit
+- `Helix_black.jpg` — cleaned image, black background, used for successful Astrometry.net solve
+- `cropped_for_astrometry.jpg` — earlier crop attempt, superseded by Helix_black.jpg
 
 
 
