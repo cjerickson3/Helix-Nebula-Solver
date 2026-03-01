@@ -107,7 +107,7 @@ Grid dimensions estimated from border piece count: find all `(w, h)` where `b = 
 - **Tab** = protrusion that sticks out (TAB)
 - **Blank** = indentation/socket (BLANK)
 - **Border** = flat edge (puzzle boundary)
-- **Topology** = the pattern of tabs/blanks on a piece's 4 edges, e.g. `[TAB, BLANK, BORDER, HEAD]`
+- **Topology** = the pattern of tabs/blanks on a piece's 4 edges, e.g. `[TAB, BLANK, BORDER, TAB]`
 - **Excel-style labeling**: A1=upper-left, B1=upper-right, A2=lower-left, B2=lower-right
 
 ---
@@ -397,7 +397,77 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ---
 
+## Pending Tasks — START HERE next session
+
+### 1. Gaia DR3 query code ← NEXT UP
+First piece of the astrometry pipeline. Query Gaia DR3 for all stars within ~1° of the
+Helix Nebula center and save as a local reference catalog.
+
+```python
+# Suggested approach using astroquery
+from astroquery.gaia import Gaia
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+
+coord = SkyCoord(ra=337.4, dec=-20.8, unit='deg')
+radius = u.Quantity(1.0, u.deg)
+results = Gaia.query_object_async(coordinate=coord, radius=radius)
+results.write('resources/gaia_helix_stars.fits', format='fits', overwrite=True)
+```
+
+- Store in `resources/gaia_helix_stars.fits` (add to .gitignore — data file, not code)
+- Write helper module `src/Astrometry/gaia_catalog.py` to load and query the cache
+- Install dependencies: `astroquery`, `astropy` via uv
+
+### 2. Build the SQLite database
+Create `src/Database/create_db.py` that:
+- Creates all tables from the schema section above
+- Seeds the Helix Nebula puzzle record (RA=337.4, Dec=-20.8)
+- Seeds `pattern_vocabulary` with Helix-specific terms
+- Outputs `resources/helix_puzzle.db`
+
+### 3. Glowforge jig — READY TO CUT ✓
+`scripts/helix_jig.svg` is complete. Cut from 1/8" basswood.
+136mm × 136mm (5.35" × 5.35"). Red = cut, Blue = engrave labels.
+
+---
+
 ## Session History
+
+### Session 4 — Housekeeping, TAB/BLANK rename, Glowforge jig (2026-03-01)
+
+**Completed:**
+- Clarified the three Claude interfaces: Chat (this), Code tab (GUI for Claude Code), Cowork (agentic tasks)
+- Established workflow: upload CLAUDE.md at start of each Chat session to restore context
+- Renamed local folder `Callan_Nebula` → `Helix_Nebula` on disk
+- Updated GitHub remote URL to `https://github.com/cjerickson3/Helix-Nebula-Solver`
+- Committed up-to-date CLAUDE.md to repo (was behind by one session)
+- **TAB/BLANK rename complete** — wrote `scripts/rename_terminology.py`, ran it, verified solver
+  still runs correctly on degaulle.png test image, committed and pushed
+  - Files changed: `Enums.py`, `Edge.py`, `Puzzle.py`, `filters.py`
+  - `PuzzlePiece.py` and `Distance.py` had no HEAD/HOLE references — unchanged
+- Moved `rename_terminology.py` to `scripts/` folder (established scripts/ as home for utilities)
+- **Glowforge SVG jig complete** — `scripts/helix_jig.svg` ready to cut
+  - 136mm × 136mm (5.35" × 5.35"), 1/8" basswood
+  - 3×3 grid, 38mm cells, 3mm walls, 8mm margin
+  - Labels A1-C3 engraved (blue), cell openings and outer border cut (red)
+  - No orientation notch — orientation handled computationally, not physically
+  - Generator script: `scripts/make_jig_svg.py`
+
+**Key discussion — orientation and rotation constraints:**
+- Interior puzzle pieces have NO determinable orientation — must try all 4 rotations
+- This is a major source of human labor and computational cost
+- Strategy: layer constraints to eliminate rotations before expensive CV matching:
+  1. Topology constraint first (which rotations are valid for this grid position?)
+  2. Color gradient direction (which way is "toward nebula center"?)
+  3. Light source / star position consistency
+  4. Full CV edge matching only on surviving rotation candidates
+- Asymmetric topologies (3-TAB/1-BLANK, 1-TAB/3-BLANK) constrain rotation most strongly
+- Opposite-TAB pieces (TAB-BLANK-TAB-BLANK) are worst case — only 2 distinct rotations
+
+**stale .venv warning:**
+After renaming folder, git-bash may still have `VIRTUAL_ENV` set to old `Callan_Nebula` path.
+Fix: `deactivate` then `source .venv/Scripts/activate` from the Helix_Nebula/Solver directory.
 
 ### Session 3 — Astrometry approach (2026-02-25)
 **Big new idea:** Use actual astronomical star positions to determine puzzle piece placement, bypassing the color/edge matching problem entirely for pieces containing stars.
