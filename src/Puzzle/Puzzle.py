@@ -454,9 +454,9 @@ class Puzzle():
                     y, x = y - minY, x - minX
                     if 0 <= y < border_img.shape[1] and 0 <= x < border_img.shape[0]:
                         rgb = (0, 0, 0)
-                        if e.type == TypeEdge.HOLE:
+                        if e.type == TypeEdge.BLANK:
                             rgb = (102, 178, 255)
-                        if e.type == TypeEdge.HEAD:
+                        if e.type == TypeEdge.TAB:
                             rgb = (255, 255, 102)
                         if e.type == TypeEdge.UNDEFINED:
                             rgb = (255, 0, 0)

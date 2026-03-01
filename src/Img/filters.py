@@ -277,9 +277,9 @@ def type_peak(peaks_pos_inside, peaks_neg_inside):
     if len(peaks_pos_inside) == 0 and len(peaks_neg_inside) == 0:
         return TypeEdge.BORDER
     if len(peaks_inside(peaks_pos_inside, peaks_neg_inside)) == 2:
-        return TypeEdge.HOLE
+        return TypeEdge.BLANK
     if len(peaks_inside(peaks_neg_inside, peaks_pos_inside)) == 2:
-        return TypeEdge.HEAD
+        return TypeEdge.TAB
     return TypeEdge.UNDEFINED
 
 def my_find_corner_signature(cnt, green=False):

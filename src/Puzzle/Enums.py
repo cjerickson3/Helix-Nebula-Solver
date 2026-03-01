@@ -29,8 +29,8 @@ def get_opposite_direction(dir1):
 class TypeEdge(Enum):
     """ Enum used to keep track of the type of edges """
 
-    HOLE = 0
-    HEAD = 1
+    BLANK = 0
+    TAB = 1
     BORDER = 2
     UNDEFINED = 3
 

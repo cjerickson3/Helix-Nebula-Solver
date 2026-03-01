@@ -8,7 +8,7 @@ class Edge:
         Contains shape, colors, type and positions informations in the puzzle of an edge.
     """
 
-    def __init__(self, shape, color, type=TypeEdge.HOLE, connected=False, direction=Directions.N):
+    def __init__(self, shape, color, type=TypeEdge.BLANK, connected=False, direction=Directions.N):
         self.shape = shape
         self.shape_backup = shape
         self.color = color
@@ -45,5 +45,5 @@ class Edge:
     def is_compatible(self, e2):
         """ Helper to determine if two edges are compatible """
 
-        return (self.type == TypeEdge.HOLE and e2.type == TypeEdge.HEAD) or (self.type == TypeEdge.HEAD and e2.type == TypeEdge.HOLE) \
+        return (self.type == TypeEdge.BLANK and e2.type == TypeEdge.TAB) or (self.type == TypeEdge.TAB and e2.type == TypeEdge.BLANK) \
                or self.type == TypeEdge.UNDEFINED or e2.type == TypeEdge.UNDEFINED
