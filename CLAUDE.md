@@ -107,7 +107,7 @@ Grid dimensions estimated from border piece count: find all `(w, h)` where `b = 
 - **Tab** = protrusion that sticks out (TAB)
 - **Blank** = indentation/socket (BLANK)
 - **Border** = flat edge (puzzle boundary)
-- **Topology** = the pattern of tabs/blanks on a piece's 4 edges, e.g. `[TAB, BLANK, BORDER, TAB]`
+- **Topology** = the pattern of tabs/blanks on a piece's 4 edges, e.g. `[TAB, BLANK, BORDER, HEAD]`
 - **Excel-style labeling**: A1=upper-left, B1=upper-right, A2=lower-left, B2=lower-right
 
 ---
@@ -397,77 +397,7 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ---
 
-## Pending Tasks — START HERE next session
-
-### 1. Gaia DR3 query code ← NEXT UP
-First piece of the astrometry pipeline. Query Gaia DR3 for all stars within ~1° of the
-Helix Nebula center and save as a local reference catalog.
-
-```python
-# Suggested approach using astroquery
-from astroquery.gaia import Gaia
-from astropy.coordinates import SkyCoord
-import astropy.units as u
-
-coord = SkyCoord(ra=337.4, dec=-20.8, unit='deg')
-radius = u.Quantity(1.0, u.deg)
-results = Gaia.query_object_async(coordinate=coord, radius=radius)
-results.write('resources/gaia_helix_stars.fits', format='fits', overwrite=True)
-```
-
-- Store in `resources/gaia_helix_stars.fits` (add to .gitignore — data file, not code)
-- Write helper module `src/Astrometry/gaia_catalog.py` to load and query the cache
-- Install dependencies: `astroquery`, `astropy` via uv
-
-### 2. Build the SQLite database
-Create `src/Database/create_db.py` that:
-- Creates all tables from the schema section above
-- Seeds the Helix Nebula puzzle record (RA=337.4, Dec=-20.8)
-- Seeds `pattern_vocabulary` with Helix-specific terms
-- Outputs `resources/helix_puzzle.db`
-
-### 3. Glowforge jig — READY TO CUT ✓
-`scripts/helix_jig.svg` is complete. Cut from 1/8" basswood.
-136mm × 136mm (5.35" × 5.35"). Red = cut, Blue = engrave labels.
-
----
-
 ## Session History
-
-### Session 4 — Housekeeping, TAB/BLANK rename, Glowforge jig (2026-03-01)
-
-**Completed:**
-- Clarified the three Claude interfaces: Chat (this), Code tab (GUI for Claude Code), Cowork (agentic tasks)
-- Established workflow: upload CLAUDE.md at start of each Chat session to restore context
-- Renamed local folder `Callan_Nebula` → `Helix_Nebula` on disk
-- Updated GitHub remote URL to `https://github.com/cjerickson3/Helix-Nebula-Solver`
-- Committed up-to-date CLAUDE.md to repo (was behind by one session)
-- **TAB/BLANK rename complete** — wrote `scripts/rename_terminology.py`, ran it, verified solver
-  still runs correctly on degaulle.png test image, committed and pushed
-  - Files changed: `Enums.py`, `Edge.py`, `Puzzle.py`, `filters.py`
-  - `PuzzlePiece.py` and `Distance.py` had no HEAD/HOLE references — unchanged
-- Moved `rename_terminology.py` to `scripts/` folder (established scripts/ as home for utilities)
-- **Glowforge SVG jig complete** — `scripts/helix_jig.svg` ready to cut
-  - 136mm × 136mm (5.35" × 5.35"), 1/8" basswood
-  - 3×3 grid, 38mm cells, 3mm walls, 8mm margin
-  - Labels A1-C3 engraved (blue), cell openings and outer border cut (red)
-  - No orientation notch — orientation handled computationally, not physically
-  - Generator script: `scripts/make_jig_svg.py`
-
-**Key discussion — orientation and rotation constraints:**
-- Interior puzzle pieces have NO determinable orientation — must try all 4 rotations
-- This is a major source of human labor and computational cost
-- Strategy: layer constraints to eliminate rotations before expensive CV matching:
-  1. Topology constraint first (which rotations are valid for this grid position?)
-  2. Color gradient direction (which way is "toward nebula center"?)
-  3. Light source / star position consistency
-  4. Full CV edge matching only on surviving rotation candidates
-- Asymmetric topologies (3-TAB/1-BLANK, 1-TAB/3-BLANK) constrain rotation most strongly
-- Opposite-TAB pieces (TAB-BLANK-TAB-BLANK) are worst case — only 2 distinct rotations
-
-**stale .venv warning:**
-After renaming folder, git-bash may still have `VIRTUAL_ENV` set to old `Callan_Nebula` path.
-Fix: `deactivate` then `source .venv/Scripts/activate` from the Helix_Nebula/Solver directory.
 
 ### Session 3 — Astrometry approach (2026-02-25)
 **Big new idea:** Use actual astronomical star positions to determine puzzle piece placement, bypassing the color/edge matching problem entirely for pieces containing stars.
@@ -555,3 +485,122 @@ The 4 test pieces are all edge pieces (1 flat edge each). `connected_pieces` sta
 - `src/Puzzle/Bad_Extractor.py.py` — dead code, double `.py` extension
 - `src/Path` — stray binary Windows PATH dump file
 - Root-level `main_no_gui.py` — hardcoded old paths; use `src/main_no_gui.py` instead
+
+## Pending Tasks — START HERE next session
+
+### 1. MAST Archive — find WCS reference image ← NEXT UP
+Already located at: `https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html`
+Search: NGC 7293
+
+**What to do:**
+- Filter Mission → **HST** (667 observations)
+- Filter Instrument → **ACS/WFC** (133 observations)
+- Look for Project → **HLA** (Hubble Legacy Archive, 237 rows) — pre-combined mosaics with WCS
+- Target program is likely **HST program 9700** — the 2003 Helix Nebula mosaic
+- Download calibrated FITS file — it will have WCS headers already embedded
+- Save to `resources/reference/helix_hubble_wcs.fits` (add to .gitignore)
+
+**Why this matters:** The WCS header gives pixel→RA/Dec mapping for free.
+No plate solving needed. Every puzzle piece star position can be directly
+back-projected to a grid coordinate.
+
+### 2. Scanner workflow — IN PROGRESS (physical task)
+Scanner working via NAPS2 (firewall workaround found).
+- NAPS2 installed and connecting via ESCL/IP address
+- Box art scanned at 600 DPI → `PuzzleBox.tiff` (5100×6600px, portrait orientation)
+- Back of box scanned → `back_of_box.tiff` (5100×6600px)
+- **TODO:** Rotate box scans to landscape, save as PNG to `resources/scans/`
+- **TODO:** 8-pass border scan (29.5"×19.75", needs 8 passes with 1" overlap)
+  - Name files: `border_r1c1.png` through `border_r2c4.png`
+  - Save to `resources/scans/border/`
+
+### 3. Gaia DR3 query code
+Query Gaia DR3 for stars within ~1° of RA=337.4, Dec=-20.8.
+Note: Hubble image may use slightly different center — confirm from WCS file first.
+Store in `resources/gaia_helix_stars.fits` (gitignore).
+Write: `src/Astrometry/gaia_catalog.py`
+
+### 4. Build SQLite database
+`src/Database/create_db.py` — schema, Helix puzzle record, pattern vocabulary.
+Output: `resources/helix_puzzle.db`
+
+### 5. Glowforge jig — READY TO CUT ✓
+`scripts/helix_jig.svg` complete. 136mm × 136mm, 1/8" basswood.
+Red = cut, Blue = engrave labels. Cut this before next photography session.
+
+---
+
+## Session History
+
+### Session 5 — Source image identified, scanner working (2026-03-01 evening)
+
+**Key discovery — puzzle image confirmed:**
+- Attribution on box: **"Photo Credit: NASA ESA/Hubble Space Telescope"**
+- Publisher logo: **STREAMLINE** imaged
+- Image confirmed as the **2003 "Iridescent Glory" Hubble mosaic** of Helix Nebula
+  - Composite of 9 ultra-sharp Hubble ACS images + Mosaic Camera at Kitt Peak (NOAO)
+  - Released May 9, 2003 for Astronomy Day
+  - Credit: NASA, NOAO, ESA, Hubble Helix Nebula Team, M. Meixner (STScI), T.A. Rector (NRAO)
+  - Visual: teal/cyan nebula ring with red/orange center — matches puzzle exactly
+  - NOT the 2004 Cerro Tololo composite, NOT the JWST 2026 image
+- Box front and back show the same image
+- Box scanned portrait (5100×6600px) — box is landscape, was placed vertically on bed
+
+**Scanner breakthrough:**
+- NAPS2 installed successfully (free, open source, no HP Smart needed)
+- Connected to HP OfficeJet Pro 9125e via **ESCL driver + manual IP address**
+- Windows Firewall was blocking WIA/TWAIN — ESCL over network bypassed this
+- Successfully scanned box art and back of box at 600 DPI
+- Windows Fax and Scan not available on Windows 11 24H2 — confirmed removed from Optional Features
+- NAPS2 batch scan mode will be useful for 8-pass border scan
+
+**MAST STScI archive located:**
+- URL: `https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html`
+- Searched NGC 7293 — found 1273 total rows of observations
+- HST: 667 observations, ACS/WFC: 133, HLA: 237, JWST: 36
+- Rows 6-16 show target 69813909 at RA=22:29:38.545, Dec=-20:50:13.75 — this is NGC 7293
+- **HLA (Hubble Legacy Archive)** is the best source — pre-combined mosaics with WCS embedded
+- HST program **9700** likely contains the 2003 ACS mosaic data
+- Will download calibrated FITS with WCS headers next session
+
+**Astrometry pipeline update:**
+- Having the original Hubble FITS with WCS means NO plate solving needed
+- Every pixel in the reference image already has RA/Dec coordinates
+- Puzzle piece stars → match to Gaia → back-project via WCS → grid position
+- Scanner (1200 DPI, CIS sensor, no lens distortion) preferred over iPhone for star detection
+- Dark background pieces (~200-300) are highest priority for this approach
+
+**Comparison image note:**
+- Image sent for comparison was Spitzer "Eye of God" infrared — NOT the puzzle image
+- The puzzle uses the Hubble visible-light version (teal/cyan, not the vivid red/teal Spitzer palette)
+
+### Session 4 — Housekeeping, TAB/BLANK rename, Glowforge jig (2026-03-01)
+
+**Completed:**
+- Clarified Claude interface differences: Chat (here), Code tab, Cowork
+- Established workflow: upload CLAUDE.md at start of each Chat session
+- Renamed local folder `Callan_Nebula` → `Helix_Nebula` on disk
+- Updated GitHub remote URL to `https://github.com/cjerickson3/Helix-Nebula-Solver`
+- **TAB/BLANK rename complete** — `scripts/rename_terminology.py` ran cleanly
+  - Files changed: `Enums.py`, `Edge.py`, `Puzzle.py`, `filters.py`
+  - Verified: solver runs correctly on degaulle.png after rename
+  - `rename_terminology.py` moved to `scripts/` folder
+- **Glowforge SVG jig complete** — `scripts/helix_jig.svg` ready to cut
+  - 136mm × 136mm, 38mm cells, 3mm walls, 8mm margin, labels A1-C3
+  - No orientation notch — orientation handled computationally
+  - Generator: `scripts/make_jig_svg.py`
+
+**Key discussion — orientation and rotation constraints:**
+- Interior pieces have NO determinable orientation — must try all 4 rotations
+- Rotation constraint strategy (apply in order before expensive CV matching):
+  1. Topology constraint — which rotations are valid for this grid position?
+  2. Color gradient direction — which way faces nebula center?
+  3. Light source / star position consistency
+  4. Full CV edge matching only on surviving candidates
+- Asymmetric topologies (3-TAB/1-BLANK) constrain rotation most strongly
+- Opposite-TAB pieces (TAB-BLANK-TAB-BLANK) worst case — only 2 distinct rotations
+
+**stale .venv warning:**
+After renaming folder, git-bash may have `VIRTUAL_ENV` set to old `Callan_Nebula` path.
+Fix: `deactivate` then `source .venv/Scripts/activate` from Helix_Nebula/Solver directory.
+
