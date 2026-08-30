@@ -397,140 +397,233 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ---
 
+
+## CURRENT STATUS — read this first
+
+**Session 7 (2026-08-30): scanning pipeline is in the repo at `Scan/` and verified on real
+scans; archival scanning of the 1000 pieces is starting.** See Session 7 in the history below.
+
+**Session 6 pivoted the project from astrometry to geometry-first solving.**
+A literature survey found `puzzle-bot` (github.com/roksenhorn/puzzle-bot) reliably solves
+1000-piece **all-white** puzzles from shape alone. Shape matching at this piece count is
+proven. Astrometry remains a fun differentiator but is NOT the critical path — the thing
+that blocked this project for two years was clean contour extraction, and that is now solved.
+
+**Validated capture protocol:** pieces glued face-down (glue stick, removable) on magenta
+card, flatbed scanned at 600 dpi, red channel thresholded, two passes per sheet with the
+sheet turned 180° between them. Measured boundary repeatability **172 µm mean, 221 µm worst**
+across 36 pieces.
+
+---
+
+## Scanning Pipeline — Measured Constants
+
+| Quantity | Value | Notes |
+|---|---|---|
+| Backing (magenta card), red channel | R = 167 | measure per scan; don't hardcode |
+| Puzzle pieces, red channel | R = 0–57 | teal and black both well below threshold |
+| Threshold | R = 95 | ≈0.57 × backing mode — store the RATIO, not the absolute |
+| Piece area | 186k–242k px | at 600 dpi |
+| Largest non-piece contour (dust) | ~315 px | 3 orders of magnitude gap; segmentation is trivial |
+| Piece bounding box | 24.0–29.6 mm | 23% size variation |
+| Shadow ramp at piece edge | ~20 px = 0.85 mm | from ~2 mm piece thickness |
+| Scanner anisotropy sx/sy | **0.99772 (−0.228%)** | multiply y by 0.99772 (or x by 1.00228) |
+
+### Key findings
+- **Fixed threshold, never Otsu.** Otsu gives 1.68% perimeter jitter on rescan; fixed gives
+  0.36%. Otsu recomputes per image, so the mix of dark vs teal pieces on a sheet shifts the
+  threshold and moves every boundary.
+- **1200 dpi does not help.** The shadow is physical, not sampling-limited — at 1200 dpi it's
+  a 40 px ramp instead of 20. Stay at 600.
+- **The shadow is partly directional** (deficit 25 levels on down-facing edges, 43 on
+  up-facing). The 180° second pass cancels it: averaging collapses the 18-level spread to ~3.5.
+- **Contour comparison MUST use rigid ICP**, not centroid-align-then-rotate. The arc-length
+  centroid of a tabbed contour is not its area centroid, and the leftover translation
+  masquerades as uniform dilation. Proper ICP took the residual from 17 px to 4 px.
+- **Blue backing is worse than red** (95 vs 116 levels of separation), and teal pieces sit
+  close to blue. Magenta/red only.
+- Anisotropy at 0.228% is ~0.43 px on a 190 px tab feature — real, but well under the 4 px
+  boundary noise. Correct it because it's free and exact, but it is not the limiting factor.
+  *(An earlier 4-piece estimate suggested 2%; that was noise from too small a sample.)*
+
+### Fiducials
+- Four solid black dots near the sheet corners plus one asymmetry dot, so pass A and pass B
+  are distinguishable automatically
+- Separated from pieces by area (~2,000 px vs ~210,000 px) — 100:1, unambiguous
+- Solve a **homography** from the four corners, not a rigid transform: absorbs the small
+  trapezoidal component (~8 px measured) from sheet flatness and drawing error
+- Type exact coordinates in Illustrator, don't drag. Freehand gave 8.8 px / 18.5 px edge
+  mismatch; typed coordinates gave 0.54 px / 8.03 px.
+- Set the Illustrator document to **RGB**, not CMYK — you're designing for a scanner's red channel
+
+### Colour constraint on magenta stock
+The pipeline thresholds the **red channel**, and only cyan ink darkens red — magenta and
+yellow don't touch it. So on magenta card there is **no ink that is both clearly visible to
+the eye and red-channel-safe**: anything visible (grey, black, blue, green) contains cyan and
+begins to look like a puzzle piece. Printers cannot print white (subtractive process).
+**Therefore: do not print guide circles on the card.** Use a laser-cut placement template.
+
+### Placement jig (supersedes printed guide circles)
+- **Thin acrylic**, not 1/8" basswood — pieces are ~2 mm, so a thick template creates
+  recessed wells that are fiddly to glue into
+- **33 mm square holes** (largest piece measured 29.6 mm), corners slightly rounded
+- **39 mm pitch** on both axes
+- **5 columns × 6 rows = 30 pieces per sheet.** Five columns needs 189 mm and fits letter's
+  216 mm; six columns does not, and that was the source of the old tightness.
+- Guaranteed separation = pitch − hole size = **6 mm**, independent of piece size variation.
+  A small piece rattling inside its hole still cannot approach its neighbour.
+- ≈34 sheets for 1000 pieces
+
+**Correction to an earlier note:** the old 36-per-sheet layout had 28.4 mm column pitch
+against pieces up to 29.6 mm wide — typical clearance 2.3 mm, occasionally negative. The
+36/36 extraction success was luck (wide pieces happening to sit beside narrow ones), not margin.
+
+---
+
+## Rotation Constraint Strategy
+
+Interior pieces have no determinable orientation, so all four rotations must be tested.
+Apply constraints cheapest-first:
+1. **Topology** — which rotations are valid for this grid position?
+2. **Colour gradient direction** — which way faces the nebula centre?
+3. **Light source / star position consistency**
+4. **Full CV edge matching**, only on surviving candidates
+
+Asymmetric topologies (3-TAB/1-BLANK) constrain rotation most strongly. Opposite-TAB pieces
+(TAB-BLANK-TAB-BLANK) are the worst case — only two distinct rotations.
+
+**Sort by cyclic sequence, not counts.** TAB-TAB-BLANK-BLANK (adjacent) and
+TAB-BLANK-TAB-BLANK (alternating) both count as "2 tabs, 2 blanks" but are different piece
+classes with different constraints. The CV extracts cyclic order, a strictly finer
+classification than the manual count sort; use the page's count as a cross-check on the CV.
+
+Edge labels have no fixed compass meaning for interior pieces. Store the sequence in contour
+order from an arbitrary corner and treat it as a cyclic string.
+
+---
+
+## Reference Image — background, no longer critical path
+
+- The puzzle is the **2003 Hubble "Iridescent Glory" mosaic** of the Helix Nebula (NGC 7293)
+- Box credit: "NASA ESA/Hubble Space Telescope"; publisher logo STREAMLINE
+- Composite of nine Hubble ACS pointings plus the Mosaic Camera at Kitt Peak (NOAO)
+- Teal/cyan ring, red/orange centre. NOT the 2004 Cerro Tololo version; NOT JWST 2026.
+- MAST portal: `https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html`, search NGC 7293
+- **The ACS footprint covers only the inner nebula.** The outer halo — where the unplaced
+  pieces live — is the Kitt Peak part, which isn't in MAST at all. There is no single FITS
+  covering the whole puzzle; chasing one is a dead end.
+- Astronomical FITS render black in GIMP (32-bit float, huge dynamic range). Use astropy +
+  matplotlib with an asinh/zscale stretch, or SAOImageDS9.
+
+---
+
+## Pending Tasks — START HERE
+
+### 1. Cut the acrylic placement jig
+Spec in the Placement jig section above. Test one row before cutting all 30 cells.
+
+### 2. Re-scan a sheet with fiducials AND pieces together
+Still the one untested combination — fiducials have only been validated on white paper,
+pieces only on unmarked magenta. Send both passes (0° and 180°). Keep the existing 36a/36b
+pair as a regression test that the code degrades gracefully when fiducials are absent.
+
+### 3. Run the scanning pipeline in `Scan/`
+Package lives at repo root (`Scan/`), run as `uv run python -m Scan.pipeline PAGE_LABEL a.tiff b.tiff`.
+Verified end-to-end on `T01a/b` and `36-page1a/b` in Session 7 — reproduces the documented
+172 µm boundary figure. Default DB path is `resources/helix_pieces.db` (gitignored).
+Still to do: validate `colour_class` against a known teal/black sheet; test with fiducials present.
+
+### 4. Later — port puzzle-bot's techniques
+Read their 44-page writeup, particularly corner enhancement and side comparison. Note their
+observation that small improvements to side comparison have outsized impact on solve time,
+because runtime blows up as the match graph gets denser — independent confirmation of the
+pre-filtering strategy.
+
+---
+
 ## Session History
 
-### Session 3 — Astrometry approach (2026-02-25)
-**Big new idea:** Use actual astronomical star positions to determine puzzle piece placement, bypassing the color/edge matching problem entirely for pieces containing stars.
+### Session 7 — Archival scanning begins; pipeline in-repo and verified (2026-08-30)
 
-**Key facts established:**
-- The puzzle is the **Helix Nebula (NGC 7293)**, NOT the Callan Nebula (old working title was wrong)
-- Source image is the **JWST NIRCam image released January 20, 2026** (NASA/ESA/CSA/STScI)
-- Two puzzles in play: **Dave's puzzle** (more complete, better overhead photo) and **Chris's puzzle** (light-box rig visible, closer view of inner region)
-- The two puzzles have **different die cuts** — astrometry approach is die-cut independent ✓
+**Adhesive solved.** Glue stick hardens after a few days and tears the piece face on
+removal. Switched to Aleene's "Tack-It Over & Over" (repositionable). All 36 pieces came off
+the original glue-stick test page cleanly once the page was a smoother card stock —
+construction paper is the worst case; do not clear-coat it, just use card stock.
 
-**Astrometry.net experiment:**
-- Uploaded `Daves_progress.jpg` to `nova.astrometry.net`
-- Job ID: **15291458**, Submission ID: **14456741**
-- Detected **36 stars** ✓
-- Job **FAILED** to plate-solve — reason: too much noise from white mat border and loose pieces confusing the star detector; also searched blind (no coordinate hint given)
-- Candidate solution briefly found at RA=215.678, Dec=9.762 — this is a false match (Helix is at RA=337.4, Dec=-20.8)
+**Card stock is now "Festive Red", cut down to fit the printer.** Backing red-channel level
+measured 193 on the T01 sheet vs 167 on the older magenta — the `THRESHOLD_RATIO` design
+absorbs this (threshold tracked 95→110 automatically). Guide boxes and page text print in a
+**blue** outline colour: both blue and beige sit safely above the red-channel threshold
+(100+ levels margin, uniform across the sheet), so the tiebreaker was human visibility and
+beige lost. Keep text clear of the piece grid and the four corner fiducial zones.
 
-**Astrometry.net final status — SOLVED but files inaccessible:**
-- Used Grok AI to clean up image → black background, no mat, no loose pieces → `Helix_black.jpg`
-- Resubmitted with coordinate hints: RA=337.4, Dec=-20.8, Radius=2.0, parity=neg, use-source-extractor
-- Job **15297948**, Submission **14463107** → **SOLVER COMPLETED SUCCESSFULLY** ✓
-- WCS file confirmed written to server
-- File download endpoints returning 500/403 errors — Astrometry.net server flakiness
-- Decision: **abandon Astrometry.net, move to local Gaia DR3 approach**
+**Pipeline moved into the repo as `Scan/`** (was loose files from Chat). Package: `config.py`
+(measured constants), `scan.py` (load/threshold/fiducials/piece extraction), `geometry.py`
+(resample, ICP register, corner + edge detection), `db.py` (SQLite schema + loader),
+`pipeline.py` (`python -m Scan.pipeline`). This schema is deliberately leaner than the
+astrometry-era schema still documented above — geometry is the critical path; the star
+tables layer back on later.
 
-**Next approach — Gaia DR3 + astroquery (fully local, no CPU limits):**
-- Query Gaia DR3 catalog directly for all stars within ~1° of Helix Nebula center
-- Cross-match against stars detected in puzzle piece photos using `photutils`
-- No external service needed, integrates directly into solver pipeline
-- Helix Nebula center: **RA=337.4°, Dec=-20.8°** (constellation Aquarius)
+**Corner-detection fallback added** (in `geometry.find_corners`). Taking the four diagonal
+extremes puts a marker on a tab tip whenever a tab sits near a corner (~11% of real pieces),
+silently corrupting topology. Fix: recover the piece *body* by morphological open/close
+(erases tabs, fills blanks), take its min-area-rect corners, snap to contour, refine by
+intersecting straight-line fits to the flat stretches either side. Diagonal method kept as
+fallback.
 
-**Files:**
-- `Helix_black.jpg` — cleaned image, black background, used for successful Astrometry.net solve
-- `cropped_for_astrometry.jpg` — earlier crop attempt, superseded by Helix_black.jpg
+**Verified on real scans** (`Nebula_Eye/`):
+- `36-page1a/b` — 36/36 pieces both passes, 36/36 paired, 6×6 grid, boundary agreement
+  172 µm (worst 220). Matches the Session 6 regression figure exactly.
+- `T01a/b` — 30/30, 30/30 paired, 5×6 grid, 171 µm. Wrote 30 pieces + 120 edges to
+  `resources/helix_pieces.db`. `colour_class` split 20 dark / 7 other / 3 teal — the
+  heuristic (`L<60→dark`; `b<-5, a<5→teal`) is still an untested first guess; the planned
+  15-teal/15-black sheet is the calibration case.
+- Fiducials absent on all current sheets — pipeline degrades gracefully (still pending
+  task #2: a sheet with fiducials AND pieces together).
 
+**Environment rebuilt.** The old `.venv` (uv, Python 3.13.1) was dead — both that Python and
+uv had been removed from the machine (now Python 3.14 via the Python Install Manager).
+Reinstalled uv (`winget install astral-sh.uv`, v0.12.7), rebuilt with `uv sync --python
+3.12`; pinned `pyqt5==5.15.10` installs fine on 3.12. **uv is in the WinGet packages dir —
+restart the shell before `uv` is on PATH.**
 
+**TODO carried forward:**
+- `page_photos` schema comment in the astrometry schema still says "up to 9 pieces per page"
+  (old 3×3 jig) — update for 30-piece scan pages if that schema is ever revived.
+- Tune `classify_colour` thresholds once a labelled teal/black sheet exists.
+- Archival scan order: sorted teal (opposing-tab) pieces first, then black (opposing-tab).
+- Filename convention: `teal-opp_p01.tiff`, … then `black-opp_p01.tiff`, … mapping to
+  `binder_page` / `binder_position`.
 
-### Session 2 — Extraction fixes (2026-02-23)
-Fixed 3 bugs in `generated_preprocesing()` and `__init__` that broke real-photo extraction:
-1. **Threshold was 254** → fixed with Otsu auto-threshold
-2. **No resize for large images** → added resize to 1024px (phone photos were ~4032px wide;
-   3×3 morphological kernels did nothing at that scale)
-3. **Close kernel too small** → proportional kernel (`image_width // 120`); added Gaussian blur
-   before thresholding to suppress thin grid lines in paper background
+### Session 6 — Pivot to geometry; scanning pipeline validated (2026-08-27)
 
-Test image that works: `Old Photos/IMG_1723.JPG` (4 pieces, top-down, white grid background)
+**Literature survey.** Most academic jigsaw work (Pomeranz, Gallagher, Sholomon, vision
+transformers, Positional Diffusion, PuzLM) solves *square-tile* puzzles — an image chopped
+into a grid, no tabs, no physical pieces. Those 22,000-piece results are not this problem.
+`puzzle-bot` is the one directly comparable project: 1000-piece all-white puzzles, pure
+geometry. Demaine proved the general problem NP-complete, but that's worst-case; real puzzles
+have enough local structure for greedy-plus-backtracking.
 
-**Status after fixes:** 4 contours correctly found, corner detection succeeds at sigma=5,
-solver crashes — see known issue below.
+**Goldberg et al. 2004** hit the identical shadow problem — ~1 mm pieces casting shadows on a
+flatbed. They photocopied pieces (blank backs, red background) and scanned the copy. We took a
+different route (fronts on magenta, red-channel threshold) and it works better.
 
-### Known crash: no corner piece
-`Puzzle.py` line 62–76 requires a corner piece (2 flat edges) to bootstrap border solving.
-The 4 test pieces are all edge pieces (1 flat edge each). `connected_pieces` stays empty → crash.
+**Experiments run:** red vs blue backing; Otsu vs fixed threshold; 600 vs 1200 dpi; shadow
+profile and directionality; dual-pass averaging; scanner anisotropy via a rotated square target.
 
-**Options:**
-- Take new photos including a true corner piece (2 flat edges), OR
-- Modify solver to start from an edge piece instead of corner
+**Validated on the 36-piece pair:** 36/36 detected in both passes, no merges, no debris. All 36
+paired uniquely under the (W−x, H−y) mapping. Sheet transform fitted at −179.98°, scale 1.0004,
+3.6 px centroid residual. Boundary agreement 172 µm.
 
----
+**Anisotropy calibration:** square target scanned at 0° and 90°. Two independent estimates,
+−0.209% and −0.247%, agreeing to 0.04%. Mean sx/sy = 0.99772. This matches the grid sheet's
+0.221% combined printer-plus-scanner figure, proving the printer contributes essentially
+nothing — the 1.1% uniform oversize there was print-driver scaling, harmless because it scales
+both axes equally.
 
-## Photo Tips for Better Extraction
-- **Black felt/foam board background** — eliminates grid noise, best contrast
-- **One piece per photo** — more pixels per piece, cleaner contours
-- **Diffuse lighting** — overcast window light or paper-diffused lamp; avoids specular highlights
-- **Shoot straight down** — parallel to piece, no perspective distortion
-- **Matte tape trick** — cover shiny spots with matte scotch tape before shooting
+**Tooling note:** files attached in a chat live in a temporary sandbox for that conversation and
+have no connection to the local repo. Always upload the current CLAUDE.md at session start.
 
----
-
-## Key Files for Tuning
-- `src/Puzzle/Extractor.py` — `PREPROCESS_DEBUG_MODE = 1` saves debug images to `C:\tmp\`
-- `src/Img/filters.py` — corner detection sigma range (5–15), peak thresholds (`mph=0.3*max`)
-- `src/Img/GreenScreen.py` — HSV green range and saturation factor (default 0.84)
-- `src/Puzzle/Distance.py` — `real_edge_compute` (color-only) and `generated_edge_compute`
-  (shape+color); luminance always dropped from LAB for lighting invariance
-
----
-
-## Dependency Notes
-- **PyQt5** pinned to `5.15.10` + `pyqt5-qt5==5.15.2` — do NOT upgrade (newer versions dropped
-  Windows wheels)
-- `pycallgraph2` + system `graphviz` needed for `graph_main.py` but not installed
-
-## Known Junk to Ignore
-- `src/Puzzle/Bad_Extractor.py.py` — dead code, double `.py` extension
-- `src/Path` — stray binary Windows PATH dump file
-- Root-level `main_no_gui.py` — hardcoded old paths; use `src/main_no_gui.py` instead
-
-## Pending Tasks — START HERE next session
-
-### 1. MAST Archive — find WCS reference image ← NEXT UP
-Already located at: `https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html`
-Search: NGC 7293
-
-**What to do:**
-- Filter Mission → **HST** (667 observations)
-- Filter Instrument → **ACS/WFC** (133 observations)
-- Look for Project → **HLA** (Hubble Legacy Archive, 237 rows) — pre-combined mosaics with WCS
-- Target program is likely **HST program 9700** — the 2003 Helix Nebula mosaic
-- Download calibrated FITS file — it will have WCS headers already embedded
-- Save to `resources/reference/helix_hubble_wcs.fits` (add to .gitignore)
-
-**Why this matters:** The WCS header gives pixel→RA/Dec mapping for free.
-No plate solving needed. Every puzzle piece star position can be directly
-back-projected to a grid coordinate.
-
-### 2. Scanner workflow — IN PROGRESS (physical task)
-Scanner working via NAPS2 (firewall workaround found).
-- NAPS2 installed and connecting via ESCL/IP address
-- Box art scanned at 600 DPI → `PuzzleBox.tiff` (5100×6600px, portrait orientation)
-- Back of box scanned → `back_of_box.tiff` (5100×6600px)
-- **TODO:** Rotate box scans to landscape, save as PNG to `resources/scans/`
-- **TODO:** 8-pass border scan (29.5"×19.75", needs 8 passes with 1" overlap)
-  - Name files: `border_r1c1.png` through `border_r2c4.png`
-  - Save to `resources/scans/border/`
-
-### 3. Gaia DR3 query code
-Query Gaia DR3 for stars within ~1° of RA=337.4, Dec=-20.8.
-Note: Hubble image may use slightly different center — confirm from WCS file first.
-Store in `resources/gaia_helix_stars.fits` (gitignore).
-Write: `src/Astrometry/gaia_catalog.py`
-
-### 4. Build SQLite database
-`src/Database/create_db.py` — schema, Helix puzzle record, pattern vocabulary.
-Output: `resources/helix_puzzle.db`
-
-### 5. Glowforge jig — READY TO CUT ✓
-`scripts/helix_jig.svg` complete. 136mm × 136mm, 1/8" basswood.
-Red = cut, Blue = engrave labels. Cut this before next photography session.
-
----
-
-## Session History
 
 ### Session 5 — Source image identified, scanner working (2026-03-01 evening)
 
@@ -604,3 +697,92 @@ Red = cut, Blue = engrave labels. Cut this before next photography session.
 After renaming folder, git-bash may have `VIRTUAL_ENV` set to old `Callan_Nebula` path.
 Fix: `deactivate` then `source .venv/Scripts/activate` from Helix_Nebula/Solver directory.
 
+
+
+### Session 3 — Astrometry approach (2026-02-25)
+**Big new idea:** Use actual astronomical star positions to determine puzzle piece placement, bypassing the color/edge matching problem entirely for pieces containing stars.
+
+**Key facts established:**
+- The puzzle is the **Helix Nebula (NGC 7293)**, NOT the Callan Nebula (old working title was wrong)
+- Source image is the **JWST NIRCam image released January 20, 2026** (NASA/ESA/CSA/STScI)
+- Two puzzles in play: **Dave's puzzle** (more complete, better overhead photo) and **Chris's puzzle** (light-box rig visible, closer view of inner region)
+- The two puzzles have **different die cuts** — astrometry approach is die-cut independent ✓
+
+**Astrometry.net experiment:**
+- Uploaded `Daves_progress.jpg` to `nova.astrometry.net`
+- Job ID: **15291458**, Submission ID: **14456741**
+- Detected **36 stars** ✓
+- Job **FAILED** to plate-solve — reason: too much noise from white mat border and loose pieces confusing the star detector; also searched blind (no coordinate hint given)
+- Candidate solution briefly found at RA=215.678, Dec=9.762 — this is a false match (Helix is at RA=337.4, Dec=-20.8)
+
+**Astrometry.net final status — SOLVED but files inaccessible:**
+- Used Grok AI to clean up image → black background, no mat, no loose pieces → `Helix_black.jpg`
+- Resubmitted with coordinate hints: RA=337.4, Dec=-20.8, Radius=2.0, parity=neg, use-source-extractor
+- Job **15297948**, Submission **14463107** → **SOLVER COMPLETED SUCCESSFULLY** ✓
+- WCS file confirmed written to server
+- File download endpoints returning 500/403 errors — Astrometry.net server flakiness
+- Decision: **abandon Astrometry.net, move to local Gaia DR3 approach**
+
+**Next approach — Gaia DR3 + astroquery (fully local, no CPU limits):**
+- Query Gaia DR3 catalog directly for all stars within ~1° of Helix Nebula center
+- Cross-match against stars detected in puzzle piece photos using `photutils`
+- No external service needed, integrates directly into solver pipeline
+- Helix Nebula center: **RA=337.4°, Dec=-20.8°** (constellation Aquarius)
+
+**Files:**
+- `Helix_black.jpg` — cleaned image, black background, used for successful Astrometry.net solve
+- `cropped_for_astrometry.jpg` — earlier crop attempt, superseded by Helix_black.jpg
+
+
+
+### Session 2 — Extraction fixes (2026-02-23)
+Fixed 3 bugs in `generated_preprocesing()` and `__init__` that broke real-photo extraction:
+1. **Threshold was 254** → fixed with Otsu auto-threshold
+2. **No resize for large images** → added resize to 1024px (phone photos were ~4032px wide;
+   3×3 morphological kernels did nothing at that scale)
+3. **Close kernel too small** → proportional kernel (`image_width // 120`); added Gaussian blur
+   before thresholding to suppress thin grid lines in paper background
+
+Test image that works: `Old Photos/IMG_1723.JPG` (4 pieces, top-down, white grid background)
+
+**Status after fixes:** 4 contours correctly found, corner detection succeeds at sigma=5,
+solver crashes — see known issue below.
+
+### Known crash: no corner piece
+`Puzzle.py` line 62–76 requires a corner piece (2 flat edges) to bootstrap border solving.
+The 4 test pieces are all edge pieces (1 flat edge each). `connected_pieces` stays empty → crash.
+
+**Options:**
+- Take new photos including a true corner piece (2 flat edges), OR
+- Modify solver to start from an edge piece instead of corner
+
+---
+
+## Photo Tips for Better Extraction
+
+- **Black felt/foam board background** — eliminates grid noise, best contrast
+- **One piece per photo** — more pixels per piece, cleaner contours
+- **Diffuse lighting** — overcast window light or paper-diffused lamp; avoids specular highlights
+- **Shoot straight down** — parallel to piece, no perspective distortion
+- **Matte tape trick** — cover shiny spots with matte scotch tape before shooting
+
+---
+
+## Key Files for Tuning
+- `src/Puzzle/Extractor.py` — `PREPROCESS_DEBUG_MODE = 1` saves debug images to `C:\tmp\`
+- `src/Img/filters.py` — corner detection sigma range (5–15), peak thresholds (`mph=0.3*max`)
+- `src/Img/GreenScreen.py` — HSV green range and saturation factor (default 0.84)
+- `src/Puzzle/Distance.py` — `real_edge_compute` (color-only) and `generated_edge_compute`
+  (shape+color); luminance always dropped from LAB for lighting invariance
+
+---
+
+## Dependency Notes
+- **PyQt5** pinned to `5.15.10` + `pyqt5-qt5==5.15.2` — do NOT upgrade (newer versions dropped
+  Windows wheels)
+- `pycallgraph2` + system `graphviz` needed for `graph_main.py` but not installed
+
+## Known Junk to Ignore
+- `src/Puzzle/Bad_Extractor.py.py` — dead code, double `.py` extension
+- `src/Path` — stray binary Windows PATH dump file
+- Root-level `main_no_gui.py` — hardcoded old paths; use `src/main_no_gui.py` instead
