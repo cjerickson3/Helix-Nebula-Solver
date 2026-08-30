@@ -68,6 +68,11 @@ TAB_MIN_DEVIATION = 0.08      # bulges outward more than this => TAB (inward => 
 # on the P01 sheet; the corner-detection failures there sat at 0.20-0.43.
 CORNER_DEV_WARN = 0.15
 
+# Curvature-based corner detection (geometry._corners_curvature): a vertex whose
+# corner score exceeds this is not considered a candidate. Score combines
+# distance-from-90-degrees, opening-away-from-centre, and side straightness.
+CORNER_CAND_MAX_SCORE = 3.0
+
 # ---------------------------------------------------------------- layout
 # Acrylic placement jig: 5 columns x 6 rows, 33mm holes on 39mm pitch
 GRID_COLS = 5

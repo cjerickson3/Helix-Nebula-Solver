@@ -36,11 +36,11 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
 
 ## Known gaps
 
-- **Corner detection** fails on ~15-20% of pieces (deep blank pinches the body,
-  or a ~45° piece) — `find_corners` picks the better of two estimators and
-  `pieces.corner_dev` flags what's still shaky (clean ≤ 0.12, failures > 0.20).
-  The geometry fields stay reliable; only topology is affected. Proper fix is a
-  curvature-peak corner finder.
+- **Corner detection**: `find_corners` trusts the body-rect method on clean
+  pieces and falls back to a curvature-peak finder + diagonal method on the rest
+  (deep blank pinches the body, or a tilted piece), keeping the most regular.
+  `pieces.corner_dev` flags what's still shaky (clean ≤ 0.12). 28/30 on P01;
+  the geometry fields stay reliable regardless — only topology is affected.
 - `pipeline.classify_colour` thresholds are a first guess — calibrate against a
   sheet known to be half teal, half black.
 - Guide boxes must NOT print black (they read as pieces) — faint tint or omit

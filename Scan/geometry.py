@@ -9,6 +9,7 @@ during development that made two scans of the same piece appear to differ by 17 
 when the true figure was 4 px. Always use `icp_register`.
 """
 from __future__ import annotations
+import itertools
 import numpy as np
 import cv2
 from scipy.spatial import cKDTree
@@ -152,33 +153,166 @@ def average_contours(a: np.ndarray, b: np.ndarray,
 def find_corners(contour: np.ndarray):
     """Locate the four corners of a puzzle piece.
 
-    Two independent estimators run and the more regular result wins:
-      (a) the piece *body* recovered by morphological close+open (fills blanks,
-          erases tabs), then its min-area-rect corners snapped to the contour --
-          robust when the body is genuinely rectangular;
-      (b) the diagonal-extreme method -- robust when a deep blank pinches the
-          body, or the piece sits near 45 degrees, either of which collapses two
-          body-rect corners onto the same contour point.
+    Three independent estimators run and the most regular result wins:
+      (a) `_corners_curvature` -- scores every contour vertex on how much it
+          looks like a convex ~90-degree corner with straight sides running in
+          (puzzle-bot's approach), then picks the best four that sit ~180 degrees
+          apart in opposite pairs and split the outline into even quarters. Does
+          not depend on body shape or orientation, so it handles rotated pieces
+          and pieces pinched by a deep blank -- the cases the other two miss.
+      (b) `_body_rect_corners` -- the piece body recovered by morphological
+          close+open, then its min-area-rect corners. Robust when the body is
+          genuinely rectangular.
+      (c) `_fallback_diagonal` -- the diagonal-extreme method.
 
-    "More regular" = the four corners divide the contour into arc-length quarters
-    more evenly (`corner_spacing_cv`). On a clean piece both agree and (a) wins;
-    on the ~15% where (a) fails, (b) is markedly more even. A high CV even in the
-    winner means low confidence -- `pipeline.build_record` stores it per piece
-    (`corner_dev`) and flags the outliers.
+    "Most regular" = lowest `corner_spacing_cv` (corners divide the contour into
+    the most even arc-length quarters). A high CV even in the winner means low
+    confidence -- `pipeline.build_record` stores it per piece (`corner_dev`) and
+    flags the outliers.
 
     Returns indices into `contour`.
     """
     P = np.asarray(contour, dtype=np.float64)
 
-    candidates = []
+    body = None
     body_corners = _body_rect_corners(P)
     if body_corners is not None:
         coarse = sorted({int(np.argmin(np.hypot(*(P - bc).T))) for bc in body_corners})
         if len(coarse) == 4:
-            candidates.append([_refine_corner(P, coarse, k) for k in range(4)])
-    candidates.append(_fallback_diagonal(P))
+            body = [_refine_corner(P, coarse, k) for k in range(4)]
 
+    # A clean piece: the body-rectangle method is unambiguous -- trust it and
+    # don't let a marginally-more-even alternative override a correct answer.
+    if body is not None and corner_spacing_cv(P, body) < config.CORNER_DEV_WARN:
+        return body
+
+    # Body-rect failed or looks shaky (deep blank, ~45 deg rotation): fall back
+    # to the curvature and diagonal estimators and take the most regular.
+    candidates = [c for c in (_corners_curvature(P), body, _fallback_diagonal(P))
+                  if c is not None]
     return min(candidates, key=lambda idx: corner_spacing_cv(P, idx))
+
+
+def _wrap(a):
+    """Wrap angle(s) to (-pi, pi]."""
+    return (np.asarray(a) + np.pi) % (2 * np.pi) - np.pi
+
+
+def _corners_curvature(P: np.ndarray):
+    """Curvature-peak corner detection (puzzle-bot style).
+
+    Every vertex gets a score (lower = more corner-like) from three terms:
+      * how far the local turn is from 90 degrees,
+      * whether the corner opens toward the piece centroid (real corners do;
+        tab tips point away),
+      * how straight the contour is over the window either side (real corners
+        have straight edges leading in; tab/blank flanks are curved).
+    Concave vertices (blank bottoms) are penalised outright. Local minima below
+    a cutoff become candidates; the best four by a combined spacing / opposite-
+    pair / vertex-score metric are refined by side-intersection.
+    """
+    n = len(P)
+    if n < 40:
+        return None
+    w = max(6, n // 20)
+    centre = area_centroid(P)
+
+    back = P - np.roll(P, w, axis=0)          # P[i-w] -> P[i]
+    fwd = np.roll(P, -w, axis=0) - P          # P[i]   -> P[i+w]
+    a_back = np.arctan2(back[:, 1], back[:, 0])
+    a_fwd = np.arctan2(fwd[:, 1], fwd[:, 0])
+    turn = np.abs(_wrap(a_fwd - a_back))      # ~pi/2 at a right-angle corner
+
+    winding = np.sign(_signed_area(P))
+    cross = back[:, 0] * fwd[:, 1] - back[:, 1] * fwd[:, 0]
+    convex = np.sign(cross) == winding
+
+    bn = back / (np.linalg.norm(back, axis=1, keepdims=True) + 1e-9)
+    fn = fwd / (np.linalg.norm(fwd, axis=1, keepdims=True) + 1e-9)
+    bis = -(bn + fn)                          # bisector, pointing into the opening
+    to_centre = centre - P
+    off_centre = np.abs(_wrap(np.arctan2(bis[:, 1], bis[:, 0])
+                              - np.arctan2(to_centre[:, 1], to_centre[:, 0])))
+
+    straight = _spoke_straightness(P, w)
+
+    score = (0.7 * np.abs(turn - np.pi / 2)
+             + 0.4 * off_centre
+             + 11.0 * straight ** 2)
+    score[~convex] += 5.0
+
+    cand = [i for i in range(n)
+            if score[i] < config.CORNER_CAND_MAX_SCORE
+            and score[i] <= score[(i - 1) % n]
+            and score[i] <= score[(i + 1) % n]]
+    if len(cand) < 4:
+        return None
+    cand = sorted(cand, key=lambda i: score[i])[:14]
+
+    # The per-vertex score is weak on a tabbed piece (a blank flank curves much
+    # like a corner). The global geometry of the four picked together carries
+    # the decision: even arc-length quarters, ~90 degrees apart about the
+    # centroid, similar radius. Pairs closer than an eighth of the outline are
+    # the collapsed-corner failure and are rejected.
+    min_sep = n / 8.0
+    best, best_s = None, np.inf
+    for combo in itertools.combinations(sorted(cand), 4):
+        d = np.diff(combo + (combo[0] + n,))
+        if d.min() < min_sep:
+            continue
+        s = _score_quad(P, combo, centre, score)
+        if s < best_s:
+            best, best_s = combo, s
+    if best is None:
+        return None
+    return [_refine_corner(P, sorted(best), k) for k in range(4)]
+
+
+def _spoke_straightness(P: np.ndarray, w: int) -> np.ndarray:
+    """Per-vertex circular stdev of the heading from P[i] to each of the w
+    points on either side. Low where the contour runs straight into P[i]."""
+    n = len(P)
+    base = np.arange(n)[:, None]
+    off = np.arange(1, w + 1)[None, :]
+    fwd = P[(base + off) % n] - P[:, None, :]
+    bwd = P[(base - off) % n] - P[:, None, :]
+
+    def cstd(v):
+        a = np.arctan2(v[..., 1], v[..., 0])
+        r = np.clip(np.hypot(np.cos(a).mean(1), np.sin(a).mean(1)), 1e-9, 1.0)
+        return np.sqrt(-2.0 * np.log(r))
+
+    return 0.5 * (cstd(bwd) + cstd(fwd))
+
+
+def _score_quad(P: np.ndarray, idx, centre, vscore) -> float:
+    """Score a candidate set of four corner indices (lower = better).
+
+    A rectangular piece's corners: even arc-length quarters, evenly spread ~90
+    degrees apart around the centroid, and at a similar radius from it.
+    """
+    n = len(P)
+    idx = sorted(idx)
+    pts = P[list(idx)]
+
+    gaps = np.array([(idx[(k + 1) % 4] - idx[k]) % n for k in range(4)], float)
+    gaps[gaps == 0] = n
+    spacing = gaps.std() / gaps.mean()                       # 0 = even quarters
+
+    ang = np.sort(np.arctan2(pts[:, 1] - centre[1], pts[:, 0] - centre[0]))
+    step = np.diff(np.concatenate([ang, [ang[0] + 2 * np.pi]]))
+    ang_reg = step.std() / (np.pi / 2)                       # 0 = 90 deg apart
+
+    rad = np.hypot(pts[:, 0] - centre[0], pts[:, 1] - centre[1])
+    rad_reg = rad.std() / rad.mean()                         # 0 = equidistant
+
+    return (4.0 * spacing + 3.0 * ang_reg + 2.0 * rad_reg
+            + 0.05 * sum(vscore[i] for i in idx))
+
+
+def _signed_area(P: np.ndarray) -> float:
+    x, y = P[:, 0], P[:, 1]
+    return float(0.5 * (np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
 
 
 def corner_spacing_cv(contour: np.ndarray, corner_idx) -> float:

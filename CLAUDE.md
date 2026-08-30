@@ -579,17 +579,24 @@ fallback.
   heuristic (`L<60→dark`; `b<-5, a<5→teal`) is still an untested first guess; the planned
   15-teal/15-black sheet is the calibration case.
 - `P01a/b` (first sheet on the black-fiducial template, all opposing-tab pieces) — 30/30,
-  homography pairing (residual 21 px), 177 µm. **Corner detection is the weak link:** the
-  body-rectangle method fails on ~15-20% of pieces — two corners collapse onto one contour
-  point when a deep blank pinches the body or the piece sits near 45°. Mitigation added:
-  `find_corners` now runs both the body-rect and diagonal-extreme estimators and keeps
-  whichever splits the contour into more even arc-length quarters (`corner_spacing_cv`),
-  and `build_record` stores that CV as `pieces.corner_dev` so shaky topology is flagged,
-  not silently trusted. On P01 that took the opposing-tab count from 25/30 to 27/30 and
-  flagged the 3 genuinely-wrong ones plus 1 coincidentally-right one (`corner_dev` > 0.15;
-  clean pieces sit ≤ 0.12). The geometry fields (contour, dims, residual) are reliable for
-  all 30 — only the topology fields are affected. Proper fix (curvature-peak corner finder,
-  puzzle-bot style) is pending task #4.
+  homography pairing (residual 21 px), 177 µm, **28/30 topologies correct**, 3 flagged.
+  Note A5 was deliberately tilted (going over a guide-box line) — harmless, the extractor
+  never sees the boxes; won't be done again.
+
+**Corner detection** (`geometry.find_corners`) was the weak link and is much better now:
+- The body-rectangle method collapses two corners onto one point when a deep blank pinches
+  the body or the piece sits near 45°. `find_corners` now: trust body-rect if its
+  `corner_spacing_cv` < 0.15 (clean piece); otherwise fall back to a **curvature-peak
+  finder** (`_corners_curvature`, puzzle-bot style — score every vertex on turn-angle,
+  opening-toward-centre and side straightness, then pick the four that split the outline
+  into even quarters ~90° apart around the centroid) and the diagonal method, keeping the
+  most regular.
+- `build_record` stores `corner_spacing_cv` as `pieces.corner_dev`; `process_sheet` warns
+  when it exceeds `CORNER_DEV_WARN` (0.15). Clean pieces sit ≤ 0.12.
+- Result on P01: 25/30 → 28/30 correct; the 3 still-flagged (`corner_dev` 0.31-0.53) look
+  like genuinely deformed or non-standard pieces. 36-page1 regression unchanged (36/36).
+  Geometry fields (contour, dims, residual) are reliable for every piece — only topology
+  is affected on flagged ones.
 - Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
   they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
   was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio
