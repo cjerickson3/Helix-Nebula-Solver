@@ -578,6 +578,18 @@ fallback.
   `resources/helix_pieces.db`. `colour_class` split 20 dark / 7 other / 3 teal — the
   heuristic (`L<60→dark`; `b<-5, a<5→teal`) is still an untested first guess; the planned
   15-teal/15-black sheet is the calibration case.
+- `P01a/b` (first sheet on the black-fiducial template, all opposing-tab pieces) — 30/30,
+  homography pairing (residual 21 px), 177 µm. **Corner detection is the weak link:** the
+  body-rectangle method fails on ~15-20% of pieces — two corners collapse onto one contour
+  point when a deep blank pinches the body or the piece sits near 45°. Mitigation added:
+  `find_corners` now runs both the body-rect and diagonal-extreme estimators and keeps
+  whichever splits the contour into more even arc-length quarters (`corner_spacing_cv`),
+  and `build_record` stores that CV as `pieces.corner_dev` so shaky topology is flagged,
+  not silently trusted. On P01 that took the opposing-tab count from 25/30 to 27/30 and
+  flagged the 3 genuinely-wrong ones plus 1 coincidentally-right one (`corner_dev` > 0.15;
+  clean pieces sit ≤ 0.12). The geometry fields (contour, dims, residual) are reliable for
+  all 30 — only the topology fields are affected. Proper fix (curvature-peak corner finder,
+  puzzle-bot style) is pending task #4.
 - Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
   they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
   was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio

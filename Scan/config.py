@@ -63,6 +63,11 @@ MORPH_KERNEL = 5
 BORDER_MAX_DEVIATION = 0.04   # flatter than this => BORDER
 TAB_MIN_DEVIATION = 0.08      # bulges outward more than this => TAB (inward => BLANK)
 
+# Corner-spacing coefficient of variation (see geometry.corner_spacing_cv) above
+# which a piece's topology is flagged as unreliable. Clean pieces measure < 0.10
+# on the P01 sheet; the corner-detection failures there sat at 0.20-0.43.
+CORNER_DEV_WARN = 0.15
+
 # ---------------------------------------------------------------- layout
 # Acrylic placement jig: 5 columns x 6 rows, 33mm holes on 39mm pitch
 GRID_COLS = 5

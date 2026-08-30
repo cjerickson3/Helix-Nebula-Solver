@@ -30,13 +30,18 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
 ## Verified
 
 - `36-page1a/b` (no fiducials): 36/36 pieces, 172 µm, `(W-x, H-y)` pairing fallback.
-- `T01a/b` (faint fiducials): 30/30 pieces, 5×6 grid, 171 µm, homography pairing
-  (pair-centroid residual 19 px vs 35 px for the fallback).
+- `T01a/b` (faint fiducials): 30/30 pieces, 5×6 grid, 171 µm, homography pairing.
+- `P01a/b` (black fiducials, opposing-tab pieces): 30/30, 177 µm, homography;
+  27/30 topologies correct, the rest flagged via `corner_dev`.
 
 ## Known gaps
 
+- **Corner detection** fails on ~15-20% of pieces (deep blank pinches the body,
+  or a ~45° piece) — `find_corners` picks the better of two estimators and
+  `pieces.corner_dev` flags what's still shaky (clean ≤ 0.12, failures > 0.20).
+  The geometry fields stay reliable; only topology is affected. Proper fix is a
+  curvature-peak corner finder.
 - `pipeline.classify_colour` thresholds are a first guess — calibrate against a
   sheet known to be half teal, half black.
-- Fiducial detection wants solid-black corner dots ≥ 5 mm (T01's were faint blue
-  and only just resolve). The guide boxes must NOT be black — print them in a
-  tint that stays above the red-channel threshold, or omit them and use the jig.
+- Guide boxes must NOT print black (they read as pieces) — faint tint or omit
+  and use the acrylic jig. Fiducial corner dots: solid black, ≥ 5 mm.

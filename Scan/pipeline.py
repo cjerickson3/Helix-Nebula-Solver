@@ -95,6 +95,7 @@ def build_record(contour, residual, mean_lab, page_label, col, row):
     centroid = geometry.area_centroid(contour)
 
     corner_idx = geometry.find_corners(contour)
+    corner_dev = geometry.corner_spacing_cv(contour, corner_idx)
     edges = geometry.split_edges(contour, corner_idx)
 
     edge_records, types = [], []
@@ -126,6 +127,7 @@ def build_record(contour, residual, mean_lab, page_label, col, row):
         "width_mm": float(xs.max() - xs.min()) * scale,
         "height_mm": float(ys.max() - ys.min()) * scale,
         "residual_px": float(residual),
+        "corner_dev": float(corner_dev),   # arc-length CV of the 4 corners; >~0.15 = shaky topology
         "colour_class": classify_colour(mean_lab),
         "mean_l": float(mean_lab[0]),
         "mean_a": float(mean_lab[1]),
@@ -242,6 +244,15 @@ def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
     finite = [r for r in residuals if np.isfinite(r)]
     diag_a["mean_residual"] = float(np.mean(finite)) if finite else None
     diag_a["fiducials_found"] = fid_a.found
+
+    shaky = [r for r in records if r["corner_dev"] > config.CORNER_DEV_WARN]
+    diag_a["shaky_corners"] = [r["piece_label"] for r in shaky]
+    if verbose and shaky:
+        print(f"    WARNING: {len(shaky)} piece(s) with irregular corners -- "
+              f"topology (n_tabs / edge_sequence) may be wrong, geometry is fine:")
+        for r in sorted(shaky, key=lambda r: -r["corner_dev"]):
+            print(f"        {r['piece_label']:10s} corner_dev {r['corner_dev']:.2f}  "
+                  f"{r['edge_sequence']}")
 
     if verbose and finite:
         mm = np.mean(finite) / config.DPI * config.MM_PER_INCH * 1000

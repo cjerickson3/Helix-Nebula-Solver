@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS pieces (
     width_mm        REAL,
     height_mm       REAL,
     residual_px     REAL,                   -- dual-pass agreement for this piece
+    corner_dev      REAL,                   -- arc-length CV of the 4 corners;
+                                            -- >~0.15 => topology fields unreliable
 
     -- appearance
     colour_class    TEXT,                   -- 'teal' | 'dark' | 'other'
@@ -113,14 +115,15 @@ def insert_piece(conn, sheet_id, record):
         """INSERT OR REPLACE INTO pieces
            (sheet_id, piece_label, grid_col, grid_row,
             n_tabs, n_blanks, n_borders, edge_sequence, cyclic_key,
-            area_px, perimeter_px, width_mm, height_mm, residual_px,
+            area_px, perimeter_px, width_mm, height_mm, residual_px, corner_dev,
             colour_class, mean_l, mean_a, mean_b, contour)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (sheet_id, record["piece_label"], record["grid_col"], record["grid_row"],
          record["n_tabs"], record["n_blanks"], record["n_borders"],
          record["edge_sequence"], record["cyclic_key"],
          record["area_px"], record["perimeter_px"],
          record["width_mm"], record["height_mm"], record["residual_px"],
+         record["corner_dev"],
          record["colour_class"], record["mean_l"], record["mean_a"], record["mean_b"],
          pack(record["contour"])))
     piece_id = cur.lastrowid

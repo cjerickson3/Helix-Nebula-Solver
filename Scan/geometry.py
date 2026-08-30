@@ -152,36 +152,50 @@ def average_contours(a: np.ndarray, b: np.ndarray,
 def find_corners(contour: np.ndarray):
     """Locate the four corners of a puzzle piece.
 
-    Naively taking the four diagonal extremes fails whenever a tab sits near a
-    corner -- the tab tip is further out than the corner is, so the marker lands
-    on the tab. Measured failure rate on real scans: ~11% of pieces, and every
-    such failure silently corrupts the piece's topology.
+    Two independent estimators run and the more regular result wins:
+      (a) the piece *body* recovered by morphological close+open (fills blanks,
+          erases tabs), then its min-area-rect corners snapped to the contour --
+          robust when the body is genuinely rectangular;
+      (b) the diagonal-extreme method -- robust when a deep blank pinches the
+          body, or the piece sits near 45 degrees, either of which collapses two
+          body-rect corners onto the same contour point.
 
-    Instead we first recover the piece *body* by morphological opening, which
-    erases tabs and fills blanks, leaving a near-square. The minimum-area
-    rectangle of that body gives four reliable corner estimates, which are then
-    snapped to the contour and refined by intersecting straight-line fits to the
-    flat stretches either side of each corner.
+    "More regular" = the four corners divide the contour into arc-length quarters
+    more evenly (`corner_spacing_cv`). On a clean piece both agree and (a) wins;
+    on the ~15% where (a) fails, (b) is markedly more even. A high CV even in the
+    winner means low confidence -- `pipeline.build_record` stores it per piece
+    (`corner_dev`) and flags the outliers.
 
     Returns indices into `contour`.
     """
     P = np.asarray(contour, dtype=np.float64)
-    n = len(P)
 
+    candidates = []
     body_corners = _body_rect_corners(P)
-    if body_corners is None:
-        return _fallback_diagonal(P)
+    if body_corners is not None:
+        coarse = sorted({int(np.argmin(np.hypot(*(P - bc).T))) for bc in body_corners})
+        if len(coarse) == 4:
+            candidates.append([_refine_corner(P, coarse, k) for k in range(4)])
+    candidates.append(_fallback_diagonal(P))
 
-    # snap each rectangle corner to the nearest contour point
-    coarse = []
-    for bc in body_corners:
-        coarse.append(int(np.argmin(np.hypot(*(P - bc).T))))
+    return min(candidates, key=lambda idx: corner_spacing_cv(P, idx))
 
-    coarse = sorted(set(coarse))
-    if len(coarse) != 4:
-        return _fallback_diagonal(P)
 
-    return [_refine_corner(P, coarse, k) for k in range(4)]
+def corner_spacing_cv(contour: np.ndarray, corner_idx) -> float:
+    """Coefficient of variation of the four corner-to-corner arc lengths (in
+    contour-point counts).
+
+    0 = the corners split the contour into exact quarters. A clean piece scores
+    below ~0.10; a corner-detection failure (a collapsed pair, or a corner
+    dragged onto a tab) typically scores above 0.20.
+    """
+    n = len(contour)
+    idx = sorted(int(i) % n for i in corner_idx)
+    if len(set(idx)) < 4:
+        return 1.0
+    gaps = np.array([(idx[(k + 1) % 4] - idx[k]) % n for k in range(4)], float)
+    gaps[gaps == 0] = n
+    return float(gaps.std() / gaps.mean())
 
 
 def _body_rect_corners(P: np.ndarray):
