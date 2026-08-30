@@ -21,6 +21,9 @@ resources/
 *.db
 *.sqlite
 *.sqlite3
+*.png
+*.jpg
+*.jpeg
 
 # Transient Chat bundles / backups
 files.zip

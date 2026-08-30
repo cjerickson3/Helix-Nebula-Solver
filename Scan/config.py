@@ -35,10 +35,18 @@ PIECE_AREA_MAX = 400_000
 MERGE_AREA_FACTOR = 1.6       # area > this * median  =>  two pieces touching
 
 # ---------------------------------------------------------------- fiducials
-FIDUCIAL_AREA_MIN = 1_200
-FIDUCIAL_AREA_MAX = 9_000
+# Near-black dots on the red backing, detected on the RED channel with the same
+# ratio threshold as the pieces (luminance greyscale of red card is ~95 and
+# floods a fixed grey threshold). Corner dots print at 5.5 mm (~12,900 px at
+# 600 dpi); smaller orientation markers at ~3.3 mm (~4,900 px). The band spans
+# both; area still separates any fiducial from a piece (~210,000 px) by 15:1+.
+FIDUCIAL_AREA_MIN = 2_000
+FIDUCIAL_AREA_MAX = 25_000
 FIDUCIAL_ASPECT_TOL = 0.35    # |w/h - 1| must be under this
-FIDUCIAL_DARK_LEVEL = 150     # fiducials are solid black on magenta
+FIDUCIAL_FILL_MIN = 0.55      # area / bbox area; a disc fills ~0.79, thin marks far less
+FIDUCIAL_MORPH = 9            # ellipse kernel (px) to open/close the fiducial mask
+FIDUCIAL_SIZE_SPLIT = 0.35    # split corner vs marker dots when the largest area
+                             # gap exceeds this * mean area; else treat all as corners
 
 # ---------------------------------------------------------------- contour processing
 CONTOUR_SAMPLES = 512         # resample whole-piece contours to this many points

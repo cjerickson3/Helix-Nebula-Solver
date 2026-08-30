@@ -173,12 +173,18 @@ def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
                 print(f"    WARNING: pass counts differ ({len(pieces_a)} vs "
                       f"{len(pieces_b)}) -- some pieces will fall back to single-pass")
 
-        pairs = scan.pair_passes(pieces_a, pieces_b, img_a.shape)
+        # A fiducial homography (B pixel frame -> A pixel frame) makes pairing a
+        # direct nearest-neighbour lookup and absorbs sheet re-seating offset.
+        # (The 4-corner fit is exact, so its own reprojection residual is 0 and
+        # not worth printing -- the pair-centroid residual below is the real QC.)
+        H_ba = scan.sheet_homography(fid_b, fid_a)
+        pairs = scan.pair_passes(pieces_a, pieces_b, img_a.shape, H=H_ba)
         matched = {i: j for i, j, _ in pairs}
         if verbose:
             d = [d for _, _, d in pairs]
             if d:
-                print(f"    paired {len(pairs)}/{len(pieces_a)}, "
+                print(f"    paired {len(pairs)}/{len(pieces_a)} "
+                      f"({'homography' if H_ba is not None else 'W-x,H-y fallback'}), "
                       f"centroid residual median {np.median(d):.1f} px")
 
         for i, pa in enumerate(pieces_a):

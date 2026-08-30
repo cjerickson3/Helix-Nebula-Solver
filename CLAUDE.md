@@ -578,8 +578,27 @@ fallback.
   `resources/helix_pieces.db`. `colour_class` split 20 dark / 7 other / 3 teal — the
   heuristic (`L<60→dark`; `b<-5, a<5→teal`) is still an untested first guess; the planned
   15-teal/15-black sheet is the calibration case.
-- Fiducials absent on all current sheets — pipeline degrades gracefully (still pending
-  task #2: a sheet with fiducials AND pieces together).
+- Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
+  they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
+  was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio
+  threshold instead of luminance greyscale (red card greyscale ≈ 95, floods a fixed grey
+  threshold), plus a size split so the four large corner dots feed the homography and the
+  smaller orientation dots don't. It now resolves T01a/b and drives `pair_passes` through a
+  homography (pair-centroid residual 35 px → 19 px); sheets with no fiducials still fall
+  back to the (W−x, H−y) map (36-page1 regression unchanged at 36/36, 172 µm).
+
+**Fiducial / template design decisions (2026-08-30):**
+- **Corner dots: solid black (K-only), ~5.5 mm.** The "no red-channel-safe visible ink"
+  constraint is about the per-piece guide boxes (they sit under a piece and must not read
+  as one); fiducials are in the margin and size-filtered ~15:1 from pieces, so black is
+  fine and gives ~160 levels of red-channel separation — exposure-proof.
+- **Guide boxes must stay off the red channel.** A revised template (P01) printed them
+  solid black; `extract_pieces` then found 30 phantom "pieces" (one per box outline) on the
+  empty sheet, and with a piece glued in, RETR_EXTERNAL traces the box not the piece. Boxes
+  must be the faint blue that T01 used (box lines stayed at R ≈ 150, invisible to the
+  extractor), or omitted in favour of the acrylic jig.
+- Offset/asymmetry dot: keep it ≥ 8 mm from the sheet edge (P01 had it at 4.2 mm — a skewed
+  scan could clip it).
 
 **Environment rebuilt.** The old `.venv` (uv, Python 3.13.1) was dead — both that Python and
 uv had been removed from the machine (now Python 3.14 via the Python Install Manager).

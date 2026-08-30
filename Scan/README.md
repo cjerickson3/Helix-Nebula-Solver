@@ -22,19 +22,21 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
 | file | responsibility |
 |---|---|
 | `config.py`   | every measured constant, with provenance pointing at CLAUDE.md |
-| `scan.py`     | load, red-channel threshold (ratio of measured backing, never Otsu), fiducial detection, piece extraction, pass-to-pass pairing |
+| `scan.py`     | load, red-channel threshold (ratio of measured backing, never Otsu), fiducial detection (red channel; corner dots vs orientation markers), sheet homography, piece extraction, pass-to-pass pairing (homography when fiducials present, `(W-x, H-y)` fallback otherwise) |
 | `geometry.py` | arc-length resampling, closed-contour smoothing, rigid ICP registration, body-rectangle corner detection (+ diagonal fallback), edge split & TAB/BLANK/BORDER classification, cyclic topology signature |
 | `db.py`       | SQLite schema (`sheets`, `pieces`, `edges`) and loader; contours stored as float32 blobs |
 | `pipeline.py` | orchestration: two passes → averaged contours → per-piece records → grid assignment → DB |
 
 ## Verified
 
-- `36-page1a/b`: 36/36 pieces, 172 µm boundary agreement (Session 6 regression).
-- `T01a/b`: 30/30 pieces, 5×6 grid, 171 µm.
+- `36-page1a/b` (no fiducials): 36/36 pieces, 172 µm, `(W-x, H-y)` pairing fallback.
+- `T01a/b` (faint fiducials): 30/30 pieces, 5×6 grid, 171 µm, homography pairing
+  (pair-centroid residual 19 px vs 35 px for the fallback).
 
 ## Known gaps
 
 - `pipeline.classify_colour` thresholds are a first guess — calibrate against a
   sheet known to be half teal, half black.
-- Fiducial detection is untested on a sheet that has both fiducials and pieces;
-  when fiducials are absent the pipeline runs without the homography step.
+- Fiducial detection wants solid-black corner dots ≥ 5 mm (T01's were faint blue
+  and only just resolve). The guide boxes must NOT be black — print them in a
+  tint that stays above the red-channel threshold, or omit them and use the jig.
