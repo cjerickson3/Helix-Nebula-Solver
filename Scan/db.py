@@ -77,10 +77,22 @@ CREATE TABLE IF NOT EXISTS edges (
     UNIQUE (piece_id, edge_index)
 );
 
+-- Candidate mates for each TAB/BLANK edge, produced by Scan.match. One row per
+-- (edge, candidate) pair that survives the scalar pre-filter, ranked by the
+-- fine polyline-fit error. Rebuilt from scratch on each `python -m Scan.match`.
+CREATE TABLE IF NOT EXISTS edge_matches (
+    edge_id         INTEGER NOT NULL REFERENCES edges(edge_id),
+    mate_edge_id    INTEGER NOT NULL REFERENCES edges(edge_id),
+    rank            INTEGER NOT NULL,       -- 1 = best candidate for this edge
+    fit_error       REAL,                   -- RMS px between the two edge curves
+    PRIMARY KEY (edge_id, mate_edge_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_pieces_cyclic  ON pieces(cyclic_key);
 CREATE INDEX IF NOT EXISTS idx_pieces_colour  ON pieces(colour_class);
 CREATE INDEX IF NOT EXISTS idx_pieces_sheet   ON pieces(sheet_id);
 CREATE INDEX IF NOT EXISTS idx_edges_type     ON edges(edge_type);
+CREATE INDEX IF NOT EXISTS idx_edge_matches   ON edge_matches(edge_id, rank);
 """
 
 
@@ -135,3 +147,29 @@ def insert_piece(conn, sheet_id, record):
             (piece_id, e["index"], e["type"], e["deviation"], e["chord_px"],
              pack(e["curve"])))
     return piece_id
+
+
+def load_edges(conn):
+    """Every edge in the database, as a list of dicts with the curve unpacked.
+
+    Keys: edge_id, piece_id, piece_label, edge_index, edge_type, deviation,
+    chord_px, curve (float32 (N,2)).
+    """
+    rows = conn.execute(
+        """SELECT e.edge_id, e.piece_id, p.piece_label, e.edge_index,
+                  e.edge_type, e.deviation, e.chord_px, e.curve
+           FROM edges e JOIN pieces p ON p.piece_id = e.piece_id
+           ORDER BY e.edge_id""").fetchall()
+    return [dict(edge_id=r[0], piece_id=r[1], piece_label=r[2], edge_index=r[3],
+                 edge_type=r[4], deviation=r[5], chord_px=r[6], curve=unpack(r[7]))
+            for r in rows]
+
+
+def store_edge_matches(conn, matches):
+    """Replace the edge_matches table. `matches` is an iterable of
+    (edge_id, mate_edge_id, rank, fit_error)."""
+    conn.execute("DELETE FROM edge_matches")
+    conn.executemany(
+        "INSERT INTO edge_matches (edge_id, mate_edge_id, rank, fit_error) "
+        "VALUES (?,?,?,?)", list(matches))
+    conn.commit()
