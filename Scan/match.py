@@ -26,10 +26,16 @@ import numpy as np
 from . import db, config
 
 # --- pre-filter tolerances (fractions unless noted) -------------------------
-LEN_TOL = 0.06          # |L1 - L2| / mean            (puzzle-bot SIDE_MAX_LENGTH_DISCREPANCY)
-POS_TOL = 0.08          # |peak_pos_a + peak_pos_b - 1|   (complementary feature position)
-DEV_TOL = 0.13          # |dev1 - dev2| / mean, AFTER shadow-bias correction
-WIDTH_TOL = 0.22        # |w1 - w2| / mean            (feature width)
+# Loose on purpose. Validated against 5 ground-truth mates (T02 partials): the
+# corner positions vary 10-25% between two scans of the same physical join, so a
+# tight length/position filter rejects true mates. The prefilter is nearly a
+# passthrough for now; discrimination has to come from a feature-anchored
+# descriptor (not corner-dependent) and/or a solver's grid-consistency check.
+# See CLAUDE.md "Edge matcher validation".
+LEN_TOL = 0.20          # |L1 - L2| / mean
+POS_TOL = 0.14          # |peak_pos_a + peak_pos_b - 1|   (complementary feature position)
+DEV_TOL = 0.22          # |dev1 - dev2| / mean, AFTER shadow-bias correction
+WIDTH_TOL = 0.32        # |w1 - w2| / mean            (feature width)
 
 FIT_RESAMPLE = config.EDGE_SAMPLES       # points to compare curves at
 FIT_MAX_SHIFT = 8.0                      # px, half-width of the x/y shift search
@@ -102,27 +108,37 @@ def _resample_xy(curve: np.ndarray, n: int) -> np.ndarray:
     return np.column_stack([xs, np.interp(xs, x, y)])
 
 
+def _icp_open(a: np.ndarray, b: np.ndarray, iters: int = 12) -> float:
+    """Rigid-fit open polyline b onto a (small rotation + translation), return
+    RMS nearest-point distance. Corner placement differs by a few px between two
+    scans of the same join, so the fit must not assume the endpoints line up."""
+    from scipy.spatial import cKDTree
+    B = b.copy()
+    tree = cKDTree(a)
+    for _ in range(iters):
+        d, idx = tree.query(B)
+        X = a[idx]
+        Bc, Xc = B - B.mean(0), X - X.mean(0)
+        U, _, Vt = np.linalg.svd(Bc.T @ Xc)
+        R = Vt.T @ np.diag([1.0, np.sign(np.linalg.det(Vt.T @ U.T))]) @ U.T
+        B = (B - B.mean(0)) @ R.T + X.mean(0)
+    d, _ = tree.query(B)
+    return float(np.sqrt(np.mean(d * d)))
+
+
 def fit_error(c1: np.ndarray, c2: np.ndarray) -> float:
-    """RMS distance (px) between two oriented edge curves once c2 is placed
-    against c1. c2 is mirrored (-y) and tried both as-is and reversed in x to
-    absorb contour-winding differences; a small x/y shift is searched to absorb
-    corner-location noise."""
+    """RMS distance (px) between two oriented edge curves representing the same
+    physical join. c2 is mirrored (-y); both winding directions are tried; the
+    two curves are then rigidly ICP-aligned so corner-placement differences of a
+    few px do not inflate the score."""
     a = _resample_xy(c1, FIT_RESAMPLE)
-    a = a - [a[0, 0], 0.0]                       # start at x=0
     best = np.inf
     for rev in (False, True):
         b = _resample_xy(c2, FIT_RESAMPLE).copy()
         b[:, 1] = -b[:, 1]
         if rev:
             b = b[::-1].copy()
-        b = b - [b[0, 0], 0.0]
-        # match overall length to a
-        if b[-1, 0] > 1e-6:
-            b[:, 0] *= a[-1, 0] / b[-1, 0]
-        bx_on_a = np.interp(a[:, 0], b[:, 0], b[:, 1])
-        for dy in np.linspace(-FIT_MAX_SHIFT, FIT_MAX_SHIFT, 7):
-            d = a[:, 1] - (bx_on_a + dy)
-            best = min(best, float(np.sqrt(np.mean(d * d))))
+        best = min(best, _icp_open(a, b))
     return best
 
 

@@ -621,11 +621,29 @@ fallback.
   (mirror one curve, try both windings, small x/y shift search, RMS distance — puzzle-bot's
   `error_between_polylines`) ranks the survivors.
 - Output: `edge_matches` table (edge_id, mate_edge_id, rank, fit_error), rebuilt each run.
-- On P01+P02 (60 pieces, few/no true neighbours expected in the set): 25 mutual best-match
-  pairs at 8-12 px, median best-candidate fit 19 px. **Real validation needs a solved region
-  or the full piece set** so true adjacencies are present. Tolerances in `match.py` are a
-  first cut — tune against ground truth.
-- Next: the DFS solver (schema has `pieces.placed_col/row/rotation/confidence/placement_method`).
+- Fine fit is a rigid ICP overlay of the two edge curves (mirror one, try both windings) —
+  corner-independent, RMS in px. An earlier chord-normalised metric gave true mates 17-29 px;
+  ICP gets them to **4.5-8 px**.
+
+**Edge matcher validation** (2026-08-31, against 5 ground-truth mates from the T02 partials —
+`T02-A6/B6`, `B6/C6`, `A5/B5`, `D6/E6`, `C5/D5`, mapped by the user):
+- True shared edges fit at **4.5-8.2 px** by ICP. Global rank of the true mate among all
+  ~178 opposite-type edges: **3, 4, 5, 50, 94** → 3/5 in the top-5 (top 3%), 2/5 poor.
+- **Shape fit alone does not discriminate on this puzzle.** The tabs and blanks are so
+  canonical that dozens of non-mating edges also overlay to 3-5 px; the full-DB "mutual
+  best match" pairs (2.4-3.1 px) are shape coincidences between unrelated pieces.
+- **Corner-relative scalars are the right idea but corner detection isn't consistent
+  enough** — the two pieces of a true mate measure the shared edge's chord length 10-25%
+  apart, which trips the length/position pre-filter. `_corners_phase` nails topology but the
+  absolute corner position on a given edge wobbles.
+- So the matcher is a **weak pre-filter** (top-5 of ~178 contains the truth ~60% of the
+  time), not a solver. Real discrimination needs (a) a feature-anchored edge descriptor
+  that trims to the tab/blank + a fixed flat margin and ignores exact corner position, and
+  (b) a backtracking solver whose grid-consistency check rejects the shape coincidences
+  (a candidate mate is only real if the pieces' *other* edges also form consistent
+  neighbours). This is puzzle-bot's architecture.
+- Next: the feature-anchored descriptor, then the DFS solver (schema has
+  `pieces.placed_col/row/rotation/confidence/placement_method`).
 - Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
   they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
   was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio
