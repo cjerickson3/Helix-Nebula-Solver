@@ -606,6 +606,26 @@ fallback.
 - P02-B4 is a real die-cut outlier (chunky angular tabs, stepped top edge) — corners still
   land correctly (`corner_dev` 0.04). Good sign the "extremely regular" assumption tolerates
   the actual spread.
+
+**Edge matcher** (`Scan/match.py`, `python -m Scan.match`):
+- Descriptor per edge = four corner-relative scalars: chord length, feature peak position
+  along the edge (0-1), peak height, feature width. Tab/blank *shapes* here are near-
+  canonical so full-profile comparison barely discriminates — the corner-relative geometry
+  is the signal (a tab centred at 0.45 of its edge only mates a blank centred at 0.55).
+- **Shadow-bias self-calibration:** the threshold sits partway up the ~20 px edge shadow, so
+  every contour inflates outward — a tab reads ~13 px too tall, its mating blank ~13 px too
+  shallow (27 px apart on P01/P02). Measured per run from the TAB−BLANK peak-height gap and
+  removed before comparing. Store the mechanism, not the number.
+- Two stages: scalar pre-filter (opposite type, matching length ±6%, complementary feature
+  position, matching height/width) cuts **77%** of tab×blank pairs; then a fine polyline fit
+  (mirror one curve, try both windings, small x/y shift search, RMS distance — puzzle-bot's
+  `error_between_polylines`) ranks the survivors.
+- Output: `edge_matches` table (edge_id, mate_edge_id, rank, fit_error), rebuilt each run.
+- On P01+P02 (60 pieces, few/no true neighbours expected in the set): 25 mutual best-match
+  pairs at 8-12 px, median best-candidate fit 19 px. **Real validation needs a solved region
+  or the full piece set** so true adjacencies are present. Tolerances in `match.py` are a
+  first cut — tune against ground truth.
+- Next: the DFS solver (schema has `pieces.placed_col/row/rotation/confidence/placement_method`).
 - Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
   they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
   was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio

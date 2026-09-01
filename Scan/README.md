@@ -9,6 +9,9 @@ coarse colour class, and dual-pass boundary agreement.
 ```bash
 # from the repo root, in a fresh shell so uv is on PATH
 uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] [--dry-run]
+
+# after one or more sheets are in the DB: rank candidate edge mates
+uv run python -m Scan.match [--db path] [--explore] [--edge N]
 ```
 
 - `PAGE_LABEL` — e.g. `teal-opp_p01`; becomes the `sheets.page_label` and the prefix
@@ -24,8 +27,9 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
 | `config.py`   | every measured constant, with provenance pointing at CLAUDE.md |
 | `scan.py`     | load, red-channel threshold (ratio of measured backing, never Otsu), fiducial detection (red channel; corner dots vs orientation markers), sheet homography, piece extraction, pass-to-pass pairing (homography when fiducials present, `(W-x, H-y)` fallback otherwise) |
 | `geometry.py` | arc-length resampling, closed-contour smoothing, rigid ICP registration, body-rectangle corner detection (+ diagonal fallback), edge split & TAB/BLANK/BORDER classification, cyclic topology signature |
-| `db.py`       | SQLite schema (`sheets`, `pieces`, `edges`) and loader; contours stored as float32 blobs |
+| `db.py`       | SQLite schema (`sheets`, `pieces`, `edges`, `edge_matches`) and loaders; contours stored as float32 blobs |
 | `pipeline.py` | orchestration: two passes → averaged contours → per-piece records → grid assignment → DB |
+| `match.py`    | edge matcher: four corner-relative scalars per edge → scalar pre-filter (opposite type, length, complementary feature position, height/width; cuts ~77%) → fine polyline fit (mirror + shift search) → ranked `edge_matches`. Self-calibrates the tab/blank shadow-inflation bias. |
 
 ## Verified
 
@@ -48,3 +52,6 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
   sheet known to be half teal, half black.
 - Guide boxes must NOT print black (they read as pieces) — faint tint or omit
   and use the acrylic jig. Fiducial corner dots: solid black, ≥ 5 mm.
+- `match.py` tolerances are a first cut, validated only for mechanism (perfect
+  complement → 0 px fit). Real match-quality tuning needs a solved region or the
+  full piece set so true adjacencies are present in the DB.
