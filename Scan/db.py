@@ -132,6 +132,33 @@ def unpack(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32).reshape(-1, 2)
 
 
+def delete_sheet(conn, page_label):
+    """Remove a sheet and everything hanging off it, so a re-scan can be stored
+    cleanly. `INSERT OR REPLACE` on `sheets` would delete the row out from under
+    its child `pieces`, tripping the foreign key -- there is no ON DELETE CASCADE.
+    """
+    row = conn.execute("SELECT sheet_id FROM sheets WHERE page_label=?",
+                       (page_label,)).fetchone()
+    if not row:
+        return
+    sid = row[0]
+    pids = [r[0] for r in conn.execute(
+        "SELECT piece_id FROM pieces WHERE sheet_id=?", (sid,))]
+    if pids:
+        q = ",".join("?" * len(pids))
+        eids = [r[0] for r in conn.execute(
+            f"SELECT edge_id FROM edges WHERE piece_id IN ({q})", pids)]
+        if eids:
+            eq = ",".join("?" * len(eids))
+            conn.execute(f"DELETE FROM edge_matches WHERE edge_id IN ({eq}) "
+                         f"OR mate_edge_id IN ({eq})", eids + eids)
+            conn.execute(f"DELETE FROM edges WHERE edge_id IN ({eq})", eids)
+        conn.execute(f"DELETE FROM piece_colors WHERE piece_id IN ({q})", pids)
+        conn.execute(f"DELETE FROM pieces WHERE piece_id IN ({q})", pids)
+    conn.execute("DELETE FROM sheets WHERE sheet_id=?", (sid,))
+    conn.commit()
+
+
 def insert_sheet(conn, page_label, scan_a, scan_b, diag, residual, fiducials_found):
     cur = conn.execute(
         """INSERT OR REPLACE INTO sheets

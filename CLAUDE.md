@@ -403,6 +403,15 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 **Session 7 (2026-08-30): scanning pipeline is in the repo at `Scan/` and verified on real
 scans; archival scanning of the 1000 pieces is starting.** See Session 7 in the history below.
 
+**2026-09-01 update: shape matching is confirmed insufficient for solving.** Extraction,
+topology, corner detection and dual-pass geometry are all solid, but the pieces are too
+uniform for shape-based edge matching to identify true neighbours — validated three ways,
+most recently against a real 15-piece solved region (`T03`). The DFS solver
+(`Scan/solve.py`) is built and mechanically correct but seeds on shape coincidences. **The
+next step is an edge colour–image continuity descriptor** (Pending Task #4) — the nebula
+image is continuous across every join, the discriminator this puzzle has and white puzzles
+don't. Do that before more solver work.
+
 **Session 6 pivoted the project from astrometry to geometry-first solving.**
 A literature survey found `puzzle-bot` (github.com/roksenhorn/puzzle-bot) reliably solves
 1000-piece **all-white** puzzles from shape alone. Shape matching at this piece count is
@@ -533,7 +542,23 @@ Verified end-to-end on `T01a/b` and `36-page1a/b` in Session 7 — reproduces th
 172 µm boundary figure. Default DB path is `resources/helix_pieces.db` (gitignored).
 Still to do: validate `colour_class` against a known teal/black sheet; test with fiducials present.
 
-### 4. Later — port puzzle-bot's techniques
+### 4. Edge colour–image continuity descriptor (the current blocker — do this first)
+Shape matching is confirmed insufficient on this puzzle (three separate validations now,
+most recently against the T03 15-piece solved region: `Scan.match` mutual-best pairs are all
+shape coincidences between unrelated pieces at 2–3 px; the DFS solver places 15/15
+mechanically but only 2/15 correctly because it seeds on those coincidences). The pieces are
+too geometrically uniform.
+The lever this puzzle has that puzzle-bot (white pieces) doesn't: the printed nebula image is
+continuous across every join. Plan:
+- In `Scan.scan`/`pipeline`, sample LAB (and maybe a small texture/gradient stat) in a thin
+  strip just inside the contour along each edge; store it on `edges` (add `color_blob` back).
+- In `Scan.match`, add a colour-continuity score: a candidate join must match in colour
+  along its length. Shape drops to a weak pre-filter; colour does the discrimination.
+- Then re-run the T03 solver — it already has the grid-consistency backtracking (`Scan/solve.py`).
+The user already solves by hand this way ("built from the colour boundary" — the teal
+ring edge, the red-centre boundary).
+
+### 5. Later — port puzzle-bot's techniques
 Read their 44-page writeup, particularly corner enhancement and side comparison. Note their
 observation that small improvements to side comparison have outsized impact on solve time,
 because runtime blows up as the match graph gets denser — independent confirmation of the
@@ -654,6 +679,50 @@ fallback.
   neighbours). This is puzzle-bot's architecture.
 - Next: the feature-anchored descriptor, then the DFS solver (schema has
   `pieces.placed_col/row/rotation/confidence/placement_method`).
+
+**T03 solved-region test + feature-anchored matcher + DFS scaffold (2026-09-01):**
+- **New ground-truth data:** `Nebula_Eye/T03{a,b}-expanded.png` — a real 15-piece assembled
+  teal region (3-7-5 staggered shape), pieces glued in their solved arrangement but spread
+  apart so `extract_pieces` gets clean per-piece contours. (Also `T03{a,b}-15Assembled.png`,
+  the same 15 interlocked — kept for reference, not used; segmenting the block failed last
+  session.) Pipeline: 15/15, 184 µm, 7×3 grid, stored as sheet `T03` with real
+  `grid_col/row`. This is the connected-region validation set the matcher was missing.
+- **Corner detection — rotated-square failure fixed.** `_body_rect_corners` runs a big
+  morphological open (radius ~0.18·piece width) to erase tabs; on a 3-tab piece the tabs are
+  large, the radius is large, and the eroded body is round enough that `minAreaRect` returns
+  a box rotated ~40°. Its four points are still evenly arc-spaced (`corner_spacing_cv` 0.02)
+  and evenly ~90° apart around the centroid, so both the fast-path gate and `_score_quad`
+  accepted them — putting every "corner" mid-feature and corrupting topology + all four edge
+  curves (T03-A3, T03-C2). Fix: `find_corners` fast path now also requires each body corner
+  to sit on a corner-like *turn* (`_corners_are_square`, 45–120°); `_corner_set_quality`
+  gained a `_turn_penalty` term (turn <40° or >122° = not a corner). A3/C2 recovered, and
+  **36-page1 / T01 / P01 / P02 regression clean** (0 shaky, same topology-class counts).
+- **`db.delete_sheet`** — re-scanning a sheet tripped a FK: `INSERT OR REPLACE` on `sheets`
+  deletes the row from under its `pieces` (no `ON DELETE CASCADE`). `pipeline.store` now
+  wipes the old sheet + children first.
+- **Feature-anchored edge descriptor** (`Scan/match.py`, rewritten). Baseline from the flat
+  shoulders (robust), x=0 at the tab/blank feature centre (robust), compare only a fixed
+  ±175 px window around the feature, never look at the corner regions. Mirror + winding +
+  small shift/scale search, RMS. **True-mate top-5 recall in the T03 region: 4/20 → 14/20**
+  (old corner-relative scalars vs new). BUT the scalar pre-filter lost most of its power
+  (77% → ~18% of tab×blank pairs cut) because neck/peak/shoulder length barely vary on this
+  puzzle, and it **still cannot discriminate globally**: `Scan.match` mutual-best pairs are
+  all cross-sheet coincidences (P02↔T03 etc.) fitting at 2–3 px. Third confirmation that
+  shape alone is a dead end here.
+- **DFS solver scaffold** (`Scan/solve.py`, `python -m Scan.solve --db … --sheet T03`).
+  Piece model with N/E/S/W↔edge-index mapping under 4 rotations; multi-seed (mutual-rank-1
+  pairs first); expand most-constrained frontier cell; a placement must satisfy every shared
+  edge and ≥1 must be a strong (rank ≤4) match; backtrack; keep the largest/lowest-cost
+  assembly. **Mechanically places 15/15 but seeds on shape coincidences → 2/15 in correct
+  relative position.** The machinery is right; the matcher input isn't good enough.
+- **Verdict / next lever: edge colour–image continuity.** Adjacent pieces share continuous
+  nebula texture/stars across the join — the signal this puzzle has that puzzle-bot's white
+  puzzles don't, and the one the user uses by hand ("built from the colour boundary").
+  Plan: sample LAB in a thin strip just inside each edge (pipeline + `edges` schema), and
+  require a candidate join to match in colour along its length; shape stays a weak
+  pre-filter, DFS grid-consistency on top. **Do the colour-continuity descriptor before more
+  solver tuning.**
+
 - Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
   they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
   was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio

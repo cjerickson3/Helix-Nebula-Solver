@@ -271,6 +271,7 @@ def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
 
 def store(result: SheetResult, scan_a, scan_b, db_path):
     conn = db.connect(db_path)
+    db.delete_sheet(conn, result.page_label)
     sheet_id = db.insert_sheet(conn, result.page_label, scan_a, scan_b,
                                result.diagnostics,
                                result.diagnostics.get("mean_residual"),

@@ -183,7 +183,13 @@ def find_corners(contour: np.ndarray):
         if len(coarse) == 4:
             body = [_refine_corner(P, coarse, k) for k in range(4)]
 
-    if body is not None and corner_spacing_cv(P, body) < config.CORNER_DEV_WARN:
+    # Fast path only if the body rectangle's four points are BOTH evenly spaced
+    # AND sit on genuine ~90-degree convex turns. An over-eroded body (large tabs
+    # force a large morph radius) can yield a min-area-rect rotated ~45 degrees:
+    # its four points are still evenly spaced by arc length but land mid-edge, not
+    # on corners. The turn-angle gate rejects that and defers to the bake-off.
+    if body is not None and corner_spacing_cv(P, body) < config.CORNER_DEV_WARN \
+            and _corners_are_square(P, body):
         return body
 
     vscore, convex = _vertex_corner_score(P)
@@ -198,6 +204,43 @@ def find_corners(contour: np.ndarray):
 def _wrap(a):
     """Wrap angle(s) to (-pi, pi]."""
     return (np.asarray(a) + np.pi) % (2 * np.pi) - np.pi
+
+
+def _turn_deg(P: np.ndarray, i: int, w: int) -> float:
+    """Heading change (degrees, unsigned) across a +/- w window at contour point i."""
+    n = len(P)
+    i = int(i) % n
+    back = P[i] - P[(i - w) % n]
+    fwd = P[(i + w) % n] - P[i]
+    return float(abs(np.degrees(_wrap(
+        np.arctan2(fwd[1], fwd[0]) - np.arctan2(back[1], back[0])))))
+
+
+# Real piece corners on this puzzle turn ~65-95 degrees, up to ~115 when rounded.
+# A point stranded mid-edge (the rotated min-area-rect failure) turns much less;
+# a point dragged onto a tab tip turns much more (~130+).
+_CORNER_TURN_LO = 45.0
+_CORNER_TURN_HI = 120.0
+
+
+def _corners_are_square(P: np.ndarray, idx) -> bool:
+    """True if the contour turns by a corner-like angle at every index in `idx`.
+    Used only to gate the body-rect fast path -- a fail just defers to the
+    estimator bake-off, so this can be a touch strict without losing a piece."""
+    w = max(6, len(P) // 20)
+    return all(_CORNER_TURN_LO <= _turn_deg(P, i, w) <= _CORNER_TURN_HI
+               for i in idx)
+
+
+def _turn_penalty(P: np.ndarray, idx) -> float:
+    """Count of proposed corners whose local turn is grossly un-corner-like --
+    catches a set sitting on tab tips (min-area-rect rotated ~45 degrees) that is
+    otherwise perfectly regular and fools `_score_quad`. Deliberately only fires
+    outside a wide band: a rounded real corner still reads ~50-115 degrees, and
+    penalising that range regresses clean pieces.
+    """
+    w = max(6, len(P) // 20)
+    return float(sum(not (40.0 <= _turn_deg(P, i, w) <= 122.0) for i in idx))
 
 
 def _vertex_corner_score(P: np.ndarray, w: int | None = None):
@@ -319,7 +362,8 @@ def _corner_set_quality(P: np.ndarray, idx, vscore, convex) -> float:
     conv_bad = sum(0.0 if convex[i] else 1.0 for i in ii)
     return (2.0 * corner_spacing_cv(P, ii)
             + 1.0 * _score_quad(P, ii, centre, vscore)
-            + 3.0 * conv_bad)
+            + 3.0 * conv_bad
+            + 1.5 * _turn_penalty(P, ii))
 
 
 def _spoke_straightness(P: np.ndarray, w: int) -> np.ndarray:

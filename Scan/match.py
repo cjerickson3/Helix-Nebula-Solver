@@ -1,23 +1,26 @@
 """
 Edge matching: for every TAB / BLANK edge, find the candidate mating edges.
 
-Two stages, cheapest first (this is the pre-filter the CLAUDE.md plan calls for):
+Two stages, cheapest first (the pre-filter the CLAUDE.md plan calls for):
 
-1. Scalar pre-filter. The tab and blank *shapes* in this puzzle are nearly
-   canonical, so comparing full profiles barely discriminates. What matters is
-   the geometry relative to the corners: a tab and its mating blank must have
-   the same chord length, the feature at complementary positions along the edge
-   (peak_pos_a + peak_pos_b ~= 1), and matching feature height and width. Those
-   are four cheap scalars per edge; most pairs are rejected here.
+1. Scalar pre-filter. Opposite type, matching feature (tab/blank) neck width and
+   height, and roughly complementary feature placement along the edge. Cheap;
+   rejects most pairs.
 
-2. Fine fit. On the survivors, overlay the two edge curves (flip one, small
-   shift search) and score the RMS point distance -- puzzle-bot's
-   `error_between_polylines`.
+2. Feature-anchored fine fit. The tab and blank *shapes* in this puzzle are
+   nearly canonical AND corner detection wobbles 10-25% between the two pieces of
+   a real join, so a descriptor measured from the corners is too noisy to rank
+   mates. Instead: level the edge on its flat shoulders (robust baseline), put
+   x = 0 at the centre of the tab/blank feature (robust anchor), and compare only
+   a fixed window around the feature -- the corner regions are never looked at.
+   Overlay (mirror one, both windings, small shift + scale search), RMS the
+   point distance. The lost information -- absolute feature position relative to
+   the corners -- is recovered by the solver's grid-consistency check, not here.
 
 Usage:
     python -m Scan.match --db resources/helix_pieces.db          # compute + store
-    python -m Scan.match --db ... --explore                      # descriptor stats, no write
-    python -m Scan.match --db ... --edge 42                      # show ranked mates for one edge
+    python -m Scan.match --db ... --explore                      # descriptor stats
+    python -m Scan.match --db ... --edge 42                      # ranked mates for one edge
 """
 from __future__ import annotations
 import argparse
@@ -26,29 +29,28 @@ import numpy as np
 from . import db, config
 
 # --- pre-filter tolerances (fractions unless noted) -------------------------
-# Loose on purpose. Validated against 5 ground-truth mates (T02 partials): the
-# corner positions vary 10-25% between two scans of the same physical join, so a
-# tight length/position filter rejects true mates. The prefilter is nearly a
-# passthrough for now; discrimination has to come from a feature-anchored
-# descriptor (not corner-dependent) and/or a solver's grid-consistency check.
-# See CLAUDE.md "Edge matcher validation".
-LEN_TOL = 0.20          # |L1 - L2| / mean
-POS_TOL = 0.14          # |peak_pos_a + peak_pos_b - 1|   (complementary feature position)
-DEV_TOL = 0.22          # |dev1 - dev2| / mean, AFTER shadow-bias correction
-WIDTH_TOL = 0.32        # |w1 - w2| / mean            (feature width)
+NECK_TOL = 0.26         # |neck1 - neck2| / mean   (feature baseline width)
+PEAK_TOL = 0.40         # |peak1 - peak2| / mean, AFTER shadow-bias correction
+FLAT_TOL = 55.0         # px; complementary feature placement slack. Loose because
+                        # the shoulder length depends on the noisy corner
+                        # position, but not a free-for-all (see module docs).
 
-FIT_RESAMPLE = config.EDGE_SAMPLES       # points to compare curves at
-FIT_MAX_SHIFT = 8.0                      # px, half-width of the x/y shift search
-                                         # (corner-location noise; the systematic
-                                         # tab/blank offset is removed separately)
+# --- fine-fit window and search ------------------------------------------------
+BASELINE_FRAC = 0.22    # fraction of each end used as the flat-shoulder baseline
+FEATURE_FRAC = 0.15     # |y| above this * peak marks the feature extent
+FIT_WIN = 175.0         # px half-window around the feature centre to compare over
+FIT_N = 140             # sample count across that window
+FIT_SHIFT = 16.0        # px along-edge shift search half-width
+FIT_SHIFT_N = 13
+FIT_SCALE = (0.90, 0.95, 1.0, 1.05, 1.10)
+FIT_MIN_OVERLAP = 70    # finite-sample count required to score a fit
 
 
 # ------------------------------------------------------------------ descriptor
 
 def _orient(curve: np.ndarray, deviation: float) -> np.ndarray:
-    """Return the edge curve with y flipped so 'outward from the piece centre'
-    is +y (TAB peaks positive, BLANK peaks negative). `deviation` is the stored
-    centroid-oriented signed peak."""
+    """Edge curve with y flipped so 'outward from the piece centre' is +y
+    (TAB peaks positive, BLANK peaks negative)."""
     c = np.asarray(curve, dtype=np.float64).copy()
     ipk = int(np.argmax(np.abs(c[:, 1])))
     if c[ipk, 1] * deviation < 0:
@@ -56,25 +58,41 @@ def _orient(curve: np.ndarray, deviation: float) -> np.ndarray:
     return c
 
 
-def edge_descriptor(edge: dict) -> dict | None:
-    """Scalar descriptor of one edge for the pre-filter. None for BORDER edges
-    (they never mate)."""
-    if edge["edge_type"] == "BORDER":
-        return None
-    c = _orient(edge["curve"], edge["deviation"] or 1.0)
-    x, y = c[:, 0], c[:, 1]
-    L = float(x[-1] - x[0]) or edge["chord_px"]
+def _feature_frame(curve: np.ndarray, deviation: float):
+    """Oriented, baseline-levelled edge curve, re-anchored so x = 0 is the centre
+    of the tab/blank feature. Returns (xy, neck, peak, chord, lflat, rflat)."""
+    c = _orient(curve, deviation or 1.0)
+    x, y = c[:, 0].copy(), c[:, 1].copy()
+    L = float(x[-1] - x[0]) or 1.0
+    sh = (x < x[0] + BASELINE_FRAC * L) | (x > x[-1] - BASELINE_FRAC * L)
+    if sh.sum() >= 4:
+        m, b = np.polyfit(x[sh], y[sh], 1)
+        y = y - (m * x + b)
     ipk = int(np.argmax(np.abs(y)))
     peak = float(y[ipk])
-    peak_pos = float((x[ipk] - x[0]) / L) if L else 0.5
-    # feature width: x-span where |y| exceeds 40% of the peak
-    over = np.abs(y) > 0.4 * abs(peak)
-    width = float(x[over].max() - x[over].min()) if over.any() else 0.0
-    area = float(np.trapezoid(y, x))
+    over = np.abs(y) > FEATURE_FRAC * abs(peak)
+    lo = hi = ipk
+    while lo > 0 and over[lo - 1]:
+        lo -= 1
+    while hi < len(y) - 1 and over[hi + 1]:
+        hi += 1
+    neck = float(x[hi] - x[lo])
+    xa = float(0.5 * (x[lo] + x[hi]))
+    return (np.column_stack([x - xa, y]), neck, peak, L,
+            float(xa - x[0]), float(x[-1] - xa))
+
+
+def edge_descriptor(edge: dict) -> dict | None:
+    """Feature-anchored descriptor of one edge. None for BORDER edges."""
+    if edge["edge_type"] == "BORDER":
+        return None
+    xy, neck, peak, chord, lflat, rflat = _feature_frame(
+        edge["curve"], edge["deviation"])
     return dict(edge_id=edge["edge_id"], piece_id=edge["piece_id"],
                 piece_label=edge["piece_label"], edge_index=edge["edge_index"],
-                type=edge["edge_type"], L=L, peak=abs(peak), peak_pos=peak_pos,
-                width=width, area=area, curve=c)
+                type=edge["edge_type"], neck=neck, peak=peak, peak_adj=abs(peak),
+                chord=chord, lflat=lflat, rflat=rflat,
+                x=xy[:, 0], y=xy[:, 1])
 
 
 # ------------------------------------------------------------------ pre-filter
@@ -89,56 +107,39 @@ def prefilter(d1: dict, d2: dict) -> bool:
     shadow-bias-corrected `peak_adj` field (see `rank_candidates`)."""
     if d1["type"] == d2["type"]:
         return False
-    if _rel(d1["L"], d2["L"]) > LEN_TOL:
+    if _rel(d1["neck"], d2["neck"]) > NECK_TOL:
         return False
-    if abs(d1["peak_pos"] + d2["peak_pos"] - 1.0) > POS_TOL:
+    if _rel(d1["peak_adj"], d2["peak_adj"]) > PEAK_TOL:
         return False
-    if _rel(d1["peak_adj"], d2["peak_adj"]) > DEV_TOL:
-        return False
-    if _rel(d1["width"], d2["width"]) > WIDTH_TOL:
+    # Two pieces sharing an edge face each other, so one's left shoulder maps to
+    # the other's right shoulder. Loose because the shoulder length depends on
+    # the (noisy) corner position.
+    if min(abs(d1["lflat"] - d2["rflat"]),
+           abs(d1["rflat"] - d2["lflat"])) > FLAT_TOL:
         return False
     return True
 
 
 # ------------------------------------------------------------------- fine fit
 
-def _resample_xy(curve: np.ndarray, n: int) -> np.ndarray:
-    x, y = curve[:, 0], curve[:, 1]
-    xs = np.linspace(x[0], x[-1], n)
-    return np.column_stack([xs, np.interp(xs, x, y)])
-
-
-def _icp_open(a: np.ndarray, b: np.ndarray, iters: int = 12) -> float:
-    """Rigid-fit open polyline b onto a (small rotation + translation), return
-    RMS nearest-point distance. Corner placement differs by a few px between two
-    scans of the same join, so the fit must not assume the endpoints line up."""
-    from scipy.spatial import cKDTree
-    B = b.copy()
-    tree = cKDTree(a)
-    for _ in range(iters):
-        d, idx = tree.query(B)
-        X = a[idx]
-        Bc, Xc = B - B.mean(0), X - X.mean(0)
-        U, _, Vt = np.linalg.svd(Bc.T @ Xc)
-        R = Vt.T @ np.diag([1.0, np.sign(np.linalg.det(Vt.T @ U.T))]) @ U.T
-        B = (B - B.mean(0)) @ R.T + X.mean(0)
-    d, _ = tree.query(B)
-    return float(np.sqrt(np.mean(d * d)))
-
-
-def fit_error(c1: np.ndarray, c2: np.ndarray) -> float:
-    """RMS distance (px) between two oriented edge curves representing the same
-    physical join. c2 is mirrored (-y); both winding directions are tried; the
-    two curves are then rigidly ICP-aligned so corner-placement differences of a
-    few px do not inflate the score."""
-    a = _resample_xy(c1, FIT_RESAMPLE)
+def fit_error(d1: dict, d2: dict) -> float:
+    """RMS px between the two feature-anchored curves representing the same
+    physical join. d2 is mirrored (-y) and amplitude-normalised to d1; both
+    windings and a small shift/scale search absorb corner-placement noise."""
+    s = np.linspace(-FIT_WIN, FIT_WIN, FIT_N)
+    y1 = np.interp(s, d1["x"], d1["y"], left=np.nan, right=np.nan)
+    amp = (d1["peak_adj"] / d2["peak_adj"]) if d2["peak_adj"] else 1.0
     best = np.inf
-    for rev in (False, True):
-        b = _resample_xy(c2, FIT_RESAMPLE).copy()
-        b[:, 1] = -b[:, 1]
-        if rev:
-            b = b[::-1].copy()
-        best = min(best, _icp_open(a, b))
+    for wind in (1, -1):
+        xo = d2["x"] if wind == 1 else -d2["x"][::-1]
+        yo = (-d2["y"] if wind == 1 else -d2["y"][::-1]) * amp
+        for sc in FIT_SCALE:
+            for sh in np.linspace(-FIT_SHIFT, FIT_SHIFT, FIT_SHIFT_N):
+                y2 = np.interp(s, xo * sc + sh, yo, left=np.nan, right=np.nan)
+                m = np.isfinite(y1) & np.isfinite(y2)
+                if m.sum() < FIT_MIN_OVERLAP:
+                    continue
+                best = min(best, float(np.sqrt(np.mean((y1[m] - y2[m]) ** 2))))
     return best
 
 
@@ -148,12 +149,12 @@ def shadow_bias(descs: list[dict]) -> float:
     """Half the systematic gap between TAB peak heights and BLANK peak depths.
 
     The extraction threshold sits partway up the ~20 px edge shadow, so every
-    contour is inflated outward: a tab reads too tall by ~this much and its
-    mating blank reads too shallow by the same, ~27 px apart on the P01/P02
-    sheets. Computed per run so it tracks card stock and lamp ageing.
+    contour is inflated outward: a tab reads too tall and its mating blank too
+    shallow by ~this much. Computed per run so it tracks card stock and lamp
+    ageing.
     """
-    t = np.mean([d["peak"] for d in descs if d["type"] == "TAB"] or [0])
-    b = np.mean([d["peak"] for d in descs if d["type"] == "BLANK"] or [0])
+    t = np.mean([abs(d["peak"]) for d in descs if d["type"] == "TAB"] or [0])
+    b = np.mean([abs(d["peak"]) for d in descs if d["type"] == "BLANK"] or [0])
     return 0.5 * (t - b)
 
 
@@ -165,9 +166,8 @@ def rank_candidates(edges: list[dict], keep: int = 8):
     descs = [d for d in (edge_descriptor(e) for e in edges) if d is not None]
     bias = shadow_bias(descs)
     for d in descs:
-        s = -1.0 if d["type"] == "TAB" else 1.0
-        d["peak_adj"] = d["peak"] + s * bias
-        d["curve"] = d["curve"] + [0.0, s * bias]      # meet at the true surface
+        s = -1.0 if d["type"] == "TAB" else 1.0   # shrink tabs, grow blanks
+        d["peak_adj"] = abs(d["peak"]) + s * bias
 
     tabs = [d for d in descs if d["type"] == "TAB"]
     blanks = [d for d in descs if d["type"] == "BLANK"]
@@ -183,7 +183,7 @@ def rank_candidates(edges: list[dict], keep: int = 8):
             if not prefilter(t, b):
                 continue
             survivors += 1
-            err = fit_error(t["curve"], b["curve"])
+            err = fit_error(t, b)
             matches[t["edge_id"]].append((b["edge_id"], err))
             matches[b["edge_id"]].append((t["edge_id"], err))
 
@@ -200,9 +200,9 @@ def _explore(edges):
     descs = [d for d in (edge_descriptor(e) for e in edges) if d is not None]
     for typ in ("TAB", "BLANK"):
         g = [d for d in descs if d["type"] == typ]
-        arr = lambda k: np.array([d[k] for d in g])
+        arr = lambda k: np.array([abs(d[k]) for d in g])
         print(f"\n{typ}  (n={len(g)})")
-        for k in ("L", "peak", "peak_pos", "width"):
+        for k in ("neck", "peak", "chord", "lflat", "rflat"):
             v = arr(k)
             print(f"  {k:9s} mean {v.mean():8.2f}  sd {v.std():6.2f}  "
                   f"min {v.min():8.2f}  max {v.max():8.2f}  "
@@ -263,8 +263,7 @@ def main():
                 and eid < lst[0][0]:
             mutual.append((lst[0][1], eid, lst[0][0]))
     mutual.sort()
-    print(f"stored. mutual best-match pairs: {len(mutual)}  "
-          f"(strongest first)")
+    print(f"stored. mutual best-match pairs: {len(mutual)}  (strongest first)")
     for err, a, b in mutual[:15]:
         ea, eb = by_id[a], by_id[b]
         print(f"  fit {err:5.1f}px   {ea['piece_label']} #{ea['edge_index']} {ea['edge_type']:5s}"
