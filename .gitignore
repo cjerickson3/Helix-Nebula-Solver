@@ -15,6 +15,20 @@ mycode/
 # Resources (large image data)
 resources/
 
+# Piece scans and the derived database — local only, never uploaded
+*.tif
+*.tiff
+*.db
+*.sqlite
+*.sqlite3
+*.png
+*.jpg
+*.jpeg
+
+# Transient Chat bundles / backups
+files.zip
+CLAUDE-old.md
+
 # Old junk files
 mypackages.txt
 myreq.txt

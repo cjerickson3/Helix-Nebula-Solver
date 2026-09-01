@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="136.0mm" height="136.0mm" viewBox="0 0 136.000 136.000">
+<!-- Helix Nebula Puzzle Photography Jig -->
+<!-- Cell size: 38.0mm, Grid: 3x3, Total: 136.0x136.0mm -->
+<!-- RED = cut through, BLUE = engrave/score -->
+
+<!-- Outer boundary -->
+<rect x="0.000" y="0.000" width="136.000" height="136.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+
+<!-- Cell openings (cut) and labels (engrave) -->
+<!-- Cell A1 -->
+<rect x="8.000" y="8.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="27.000" y="27.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">A1</text>
+
+<!-- Cell B1 -->
+<rect x="49.000" y="8.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="68.000" y="27.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">B1</text>
+
+<!-- Cell C1 -->
+<rect x="90.000" y="8.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="109.000" y="27.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">C1</text>
+
+<!-- Cell A2 -->
+<rect x="8.000" y="49.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="27.000" y="68.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">A2</text>
+
+<!-- Cell B2 -->
+<rect x="49.000" y="49.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="68.000" y="68.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">B2</text>
+
+<!-- Cell C2 -->
+<rect x="90.000" y="49.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="109.000" y="68.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">C2</text>
+
+<!-- Cell A3 -->
+<rect x="8.000" y="90.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="27.000" y="109.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">A3</text>
+
+<!-- Cell B3 -->
+<rect x="49.000" y="90.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="68.000" y="109.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">B3</text>
+
+<!-- Cell C3 -->
+<rect x="90.000" y="90.000" width="38.000" height="38.000" fill="none" stroke="#FF0000" stroke-width="0.2"/>
+<text x="109.000" y="109.000" font-family="Arial" font-size="8" fill="#0000FF" text-anchor="middle" dominant-baseline="middle">C3</text>
+
+</svg>
