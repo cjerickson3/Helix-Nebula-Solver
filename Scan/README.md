@@ -25,9 +25,9 @@ uv run python -m Scan.match [--db path] [--explore] [--edge N]
 | file | responsibility |
 |---|---|
 | `config.py`   | every measured constant, with provenance pointing at CLAUDE.md |
-| `scan.py`     | load, red-channel threshold (ratio of measured backing, never Otsu), fiducial detection (red channel; corner dots vs orientation markers), sheet homography, piece extraction, pass-to-pass pairing (homography when fiducials present, `(W-x, H-y)` fallback otherwise) |
+| `scan.py`     | load, red-channel threshold (ratio of measured backing, never Otsu), fiducial detection (red channel; corner dots vs orientation markers), sheet homography, piece extraction, pass-to-pass pairing (homography when fiducials present, `(W-x, H-y)` fallback otherwise), per-piece colour descriptor (mean/std LAB, dominant hue, lightness gradient, 3×3 zone fingerprint) |
 | `geometry.py` | arc-length resampling, closed-contour smoothing, rigid ICP registration, body-rectangle corner detection (+ diagonal fallback), edge split & TAB/BLANK/BORDER classification, cyclic topology signature |
-| `db.py`       | SQLite schema (`sheets`, `pieces`, `edges`, `edge_matches`) and loaders; contours stored as float32 blobs |
+| `db.py`       | SQLite schema (`sheets`, `pieces`, `edges`, `piece_colors`, `edge_matches`) and loaders; contours stored as float32 blobs |
 | `pipeline.py` | orchestration: two passes → averaged contours → per-piece records → grid assignment → DB |
 | `match.py`    | edge matcher: four corner-relative scalars per edge → scalar pre-filter (opposite type, length, complementary feature position, height/width; cuts ~77%) → fine polyline fit (mirror + shift search) → ranked `edge_matches`. Self-calibrates the tab/blank shadow-inflation bias. |
 

@@ -89,7 +89,7 @@ def cell_label(col, row) -> str:
 
 # ------------------------------------------------------------------ per piece
 
-def build_record(contour, residual, mean_lab, page_label, col, row):
+def build_record(contour, residual, mean_lab, page_label, col, row, colour=None):
     """Turn an averaged contour into a full database record."""
     contour = scan.correct_anisotropy(contour)
     centroid = geometry.area_centroid(contour)
@@ -132,6 +132,7 @@ def build_record(contour, residual, mean_lab, page_label, col, row):
         "mean_l": float(mean_lab[0]),
         "mean_a": float(mean_lab[1]),
         "mean_b": float(mean_lab[2]),
+        "colour": colour or {},        # gradient + 3x3 zone fingerprint (Scan.scan.colour_descriptor)
         "contour": contour,
         "edges": edge_records,
     }
@@ -227,7 +228,7 @@ def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
     for k, (contour, resid) in enumerate(zip(contours, residuals)):
         col, row = cells[k] if k < len(cells) else (0, k)
         rec = build_record(contour, resid, pieces_a[k].mean_lab,
-                           page_label, col, row)
+                           page_label, col, row, pieces_a[k].colour)
         # Guard against label collisions: a duplicate means the grid inference
         # went wrong, and silently overwriting would corrupt the database.
         label = rec["piece_label"]

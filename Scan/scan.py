@@ -199,6 +199,64 @@ class RawPiece:
     area: float
     centroid: np.ndarray
     mean_lab: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    colour: dict = field(default_factory=dict)
+
+
+def colour_descriptor(lab: np.ndarray, hsv: np.ndarray, blob: np.ndarray) -> dict:
+    """Per-piece colour summary for the region / landmark pre-filter.
+
+    Returns mean & std LAB, saturation-weighted dominant hue, a linear lightness
+    gradient (`gradient_magnitude` in LAB-L units across the piece, 0 = uniform;
+    `gradient_angle_deg` points brightest -> darkest, 0 = right, 90 = up), and a
+    3x3 zone fingerprint. Zones are numbered column-row from the piece bounding
+    box: zone_00 = top-left, zone_10 = top-centre, ... zone_22 = bottom-right.
+
+    LAB is OpenCV's 0-255 encoding (a/b offset by 128) to match the rest of the
+    pipeline; hue is degrees (0-360).
+    """
+    ys, xs = np.where(blob > 0)
+    if len(xs) < 200:
+        return {}
+    L = lab[ys, xs, 0].astype(np.float64)
+    A = lab[ys, xs, 1].astype(np.float64)
+    B = lab[ys, xs, 2].astype(np.float64)
+    hue = hsv[ys, xs, 0].astype(np.float64) * 2.0        # OpenCV H 0-179 -> deg
+    sat = hsv[ys, xs, 1].astype(np.float64)
+
+    x0, y0 = xs.min(), ys.min()
+    w = max(int(xs.max() - x0), 1)
+    h = max(int(ys.max() - y0), 1)
+
+    def wmean_hue(hh, ss):
+        if ss.sum() < 1e-6:
+            return 0.0
+        a = np.radians(hh)
+        return float(np.degrees(np.arctan2((np.sin(a) * ss).sum(),
+                                           (np.cos(a) * ss).sum())) % 360.0)
+
+    # linear lightness plane over normalised coords in [-0.5, 0.5]
+    xn = (xs - x0) / w - 0.5
+    yn = (ys - y0) / h - 0.5
+    gx, gy, _ = np.linalg.lstsq(
+        np.column_stack([xn, yn, np.ones_like(xn)]), L, rcond=None)[0]
+    grad_mag = float(np.hypot(gx, gy))
+    grad_ang = (float(np.degrees(np.arctan2(-gy, -gx)) % 360.0)
+                if grad_mag > 1e-6 else 0.0)
+
+    out = dict(
+        lab_l_mean=float(L.mean()), lab_a_mean=float(A.mean()), lab_b_mean=float(B.mean()),
+        lab_l_std=float(L.std()), lab_a_std=float(A.std()), lab_b_std=float(B.std()),
+        dominant_hue=wmean_hue(hue, sat),
+        gradient_magnitude=grad_mag, gradient_angle_deg=grad_ang,
+    )
+    col = np.clip(((xs - x0) * 3 // w).astype(int), 0, 2)
+    row = np.clip(((ys - y0) * 3 // h).astype(int), 0, 2)
+    for cc in range(3):
+        for rr in range(3):
+            sel = (col == cc) & (row == rr)
+            out[f"zone_{cc}{rr}_hue"] = wmean_hue(hue[sel], sat[sel]) if sel.sum() > 20 else 0.0
+            out[f"zone_{cc}{rr}_lab_l"] = float(L[sel].mean()) if sel.sum() > 20 else 0.0
+    return out
 
 
 def extract_pieces(image: np.ndarray, level: int | None = None):
@@ -216,6 +274,7 @@ def extract_pieces(image: np.ndarray, level: int | None = None):
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+    hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
     pieces, rejected = [], []
     for c in contours:
@@ -231,9 +290,14 @@ def extract_pieces(image: np.ndarray, level: int | None = None):
 
         blob = np.zeros(mask.shape, np.uint8)
         cv2.drawContours(blob, [c], -1, 255, -1)
-        mean_lab = cv2.mean(lab, mask=blob)[:3]
+        # shrink the sampling mask off the shadowed rim before reading colour
+        core = cv2.erode(blob, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25)))
+        if core.sum() < 200 * 255:
+            core = blob
+        mean_lab = cv2.mean(lab, mask=core)[:3]
+        colour = colour_descriptor(lab, hsv, core)
 
-        pieces.append(RawPiece(pts, float(area), centroid, np.array(mean_lab)))
+        pieces.append(RawPiece(pts, float(area), centroid, np.array(mean_lab), colour))
 
     diag = {
         "threshold": level,

@@ -77,6 +77,28 @@ CREATE TABLE IF NOT EXISTS edges (
     UNIQUE (piece_id, edge_index)
 );
 
+-- One colour summary per piece, for the region / landmark pre-filter (the
+-- teal ring vs the red centre vs the dark corners). Populated by Scan.pipeline
+-- from Scan.scan.colour_descriptor. LAB is OpenCV 0-255; hue is degrees.
+CREATE TABLE IF NOT EXISTS piece_colors (
+    piece_id            INTEGER PRIMARY KEY REFERENCES pieces(piece_id),
+    lab_l_mean REAL, lab_a_mean REAL, lab_b_mean REAL,
+    lab_l_std  REAL, lab_a_std  REAL, lab_b_std  REAL,
+    dominant_hue        REAL,
+    gradient_magnitude  REAL,          -- LAB-L units across the piece (0 = uniform)
+    gradient_angle_deg  REAL,          -- brightest -> darkest; 0 = right, 90 = up
+    -- 3x3 zone fingerprint, column-row from the piece bbox
+    zone_00_hue REAL, zone_00_lab_l REAL,   -- top-left
+    zone_10_hue REAL, zone_10_lab_l REAL,   -- top-centre
+    zone_20_hue REAL, zone_20_lab_l REAL,   -- top-right
+    zone_01_hue REAL, zone_01_lab_l REAL,   -- mid-left
+    zone_11_hue REAL, zone_11_lab_l REAL,   -- centre
+    zone_21_hue REAL, zone_21_lab_l REAL,   -- mid-right
+    zone_02_hue REAL, zone_02_lab_l REAL,   -- bottom-left
+    zone_12_hue REAL, zone_12_lab_l REAL,   -- bottom-centre
+    zone_22_hue REAL, zone_22_lab_l REAL    -- bottom-right
+);
+
 -- Candidate mates for each TAB/BLANK edge, produced by Scan.match. One row per
 -- (edge, candidate) pair that survives the scalar pre-filter, ranked by the
 -- fine polyline-fit error. Rebuilt from scratch on each `python -m Scan.match`.
@@ -146,6 +168,18 @@ def insert_piece(conn, sheet_id, record):
                VALUES (?,?,?,?,?,?)""",
             (piece_id, e["index"], e["type"], e["deviation"], e["chord_px"],
              pack(e["curve"])))
+
+    col = record.get("colour") or {}
+    if col:
+        keys = (["lab_l_mean", "lab_a_mean", "lab_b_mean",
+                 "lab_l_std", "lab_a_std", "lab_b_std",
+                 "dominant_hue", "gradient_magnitude", "gradient_angle_deg"]
+                + [f"zone_{c}{r}_{q}" for c in range(3) for r in range(3)
+                   for q in ("hue", "lab_l")])
+        conn.execute(
+            f"INSERT OR REPLACE INTO piece_colors (piece_id, {','.join(keys)}) "
+            f"VALUES ({','.join('?' * (len(keys) + 1))})",
+            [piece_id] + [col.get(k) for k in keys])
     return piece_id
 
 

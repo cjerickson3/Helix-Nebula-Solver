@@ -558,11 +558,21 @@ absorbs this (threshold tracked 95→110 automatically). Guide boxes and page te
 beige lost. Keep text clear of the piece grid and the four corner fiducial zones.
 
 **Pipeline moved into the repo as `Scan/`** (was loose files from Chat). Package: `config.py`
-(measured constants), `scan.py` (load/threshold/fiducials/piece extraction), `geometry.py`
-(resample, ICP register, corner + edge detection), `db.py` (SQLite schema + loader),
-`pipeline.py` (`python -m Scan.pipeline`). This schema is deliberately leaner than the
-astrometry-era schema still documented above — geometry is the critical path; the star
-tables layer back on later.
+(measured constants), `scan.py` (load/threshold/fiducials/piece extraction/colour descriptor),
+`geometry.py` (resample, ICP register, corner + edge detection), `db.py` (SQLite schema +
+loader), `pipeline.py` (`python -m Scan.pipeline`), `match.py` (`python -m Scan.match`).
+Leaner than the astrometry-era schema documented above — geometry is the critical path; the
+star tables layer back on later.
+
+**Colour descriptors ported in (2026-08-31):** `scan.colour_descriptor` +
+`db.piece_colors` table — mean/std LAB, saturation-weighted dominant hue, a linear lightness
+gradient (`gradient_magnitude` in LAB-L units across the piece, `gradient_angle_deg`
+bright→dark), and a 3×3 zone hue/lightness fingerprint. Sampled from the piece *core* (mask
+eroded 25 px) to keep the shadowed rim out. This is the region / landmark pre-filter — teal
+ring vs red centre vs dark corners — and the anchor for the "build from the colour boundary"
+solve strategy. On the 90 teal opposing-tab pieces: `gradient_magnitude` median 42
+(min 6, max 130), `dominant_hue` 153-189° (all in the cyan band, as expected). The red-centre
+boundary pieces, once scanned on a non-red backing, will show the strong hue split.
 
 **Corner-detection fallback added** (in `geometry.find_corners`). Taking the four diagonal
 extremes puts a marker on a tab tip whenever a tab sits near a corner (~11% of real pieces),
