@@ -583,20 +583,29 @@ fallback.
   Note A5 was deliberately tilted (going over a guide-box line) — harmless, the extractor
   never sees the boxes; won't be done again.
 
-**Corner detection** (`geometry.find_corners`) was the weak link and is much better now:
-- The body-rectangle method collapses two corners onto one point when a deep blank pinches
-  the body or the piece sits near 45°. `find_corners` now: trust body-rect if its
-  `corner_spacing_cv` < 0.15 (clean piece); otherwise fall back to a **curvature-peak
-  finder** (`_corners_curvature`, puzzle-bot style — score every vertex on turn-angle,
-  opening-toward-centre and side straightness, then pick the four that split the outline
-  into even quarters ~90° apart around the centroid) and the diagonal method, keeping the
-  most regular.
+**Corner detection** (`geometry.find_corners`) — solved for this puzzle:
+- Fast path: body-rectangle method (`_body_rect_corners` → min-area-rect). Kept when its
+  `corner_spacing_cv` < 0.15 (clean piece).
+- Fallback runs four estimators and picks the best by `_corner_set_quality`:
+  1. **`_corners_phase`** — the workhorse. These pieces are extremely uniform, so the four
+     corners split the outline into near-equal quarters. Slide four evenly spaced markers
+     around the contour, score each rotation phase (convex, ~90° apart, equal radius),
+     refine each to the true corner by intersecting the flat stretches either side.
+     Recovers a corner that another method dragged into a deep blank.
+  2. `_corners_curvature` — puzzle-bot-style per-vertex scoring + combinatorial 4-pick;
+     for genuinely rotated pieces.
+  3. body-rect, 4. `_fallback_diagonal`.
+  `_corner_set_quality` = spacing CV + quad regularity + a hard penalty for a "corner" that
+  is actually concave (in a blank) — the phase method's failure mode.
 - `build_record` stores `corner_spacing_cv` as `pieces.corner_dev`; `process_sheet` warns
-  when it exceeds `CORNER_DEV_WARN` (0.15). Clean pieces sit ≤ 0.12.
-- Result on P01: 25/30 → 28/30 correct; the 3 still-flagged (`corner_dev` 0.31-0.53) look
-  like genuinely deformed or non-standard pieces. 36-page1 regression unchanged (36/36).
-  Geometry fields (contour, dims, residual) are reliable for every piece — only topology
-  is affected on flagged ones.
+  above `CORNER_DEV_WARN` (0.15).
+- **Result: P01 25→28→30/30, P02 28→30/30, both 0 flagged (max corner_dev 0.14).** T01
+  (mixed sheet) keeps all 6 topology classes — no collapse to one type. 36-page1 regression
+  36/36. Run time unchanged (~20 s/sheet). `resources/helix_pieces.db` holds P01+P02
+  (60 pieces, 240 edges), all clean.
+- P02-B4 is a real die-cut outlier (chunky angular tabs, stepped top edge) — corners still
+  land correctly (`corner_dev` 0.04). Good sign the "extremely regular" assumption tolerates
+  the actual spread.
 - Fiducials: the T01 sheets DO carry them (4 corner dots + 1 offset), just faint —
   they were printed in the same near-invisible blue as the guide boxes. `detect_fiducials`
   was rewritten (2026-08-30) to work on the **red channel** with the pipeline's ratio

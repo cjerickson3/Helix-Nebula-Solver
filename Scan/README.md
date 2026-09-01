@@ -31,16 +31,19 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
 
 - `36-page1a/b` (no fiducials): 36/36 pieces, 172 µm, `(W-x, H-y)` pairing fallback.
 - `T01a/b` (faint fiducials): 30/30 pieces, 5×6 grid, 171 µm, homography pairing.
-- `P01a/b` (black fiducials, opposing-tab pieces): 30/30, 177 µm, homography;
-  27/30 topologies correct, the rest flagged via `corner_dev`.
+- `P01a/b`, `P02a/b` (black fiducials, opposing-tab pieces): 30/30 each, 176-177 µm,
+  homography pairing, **30/30 topologies correct, 0 flagged** (after template-phase
+  corner detection).
 
 ## Known gaps
 
 - **Corner detection**: `find_corners` trusts the body-rect method on clean
-  pieces and falls back to a curvature-peak finder + diagonal method on the rest
-  (deep blank pinches the body, or a tilted piece), keeping the most regular.
-  `pieces.corner_dev` flags what's still shaky (clean ≤ 0.12). 28/30 on P01;
-  the geometry fields stay reliable regardless — only topology is affected.
+  pieces; the fallback runs a template-phase estimator (four evenly spaced
+  markers refined to the real corners — exploits how uniform this puzzle is),
+  a curvature-peak estimator, body-rect and diagonal, and keeps the best by
+  `_corner_set_quality`. `pieces.corner_dev` flags anything still shaky
+  (clean ≤ 0.14). The phase estimator assumes a roughly-rectangular piece with
+  even edges; a wildly non-standard die-cut would need the curvature path.
 - `pipeline.classify_colour` thresholds are a first guess — calibrate against a
   sheet known to be half teal, half black.
 - Guide boxes must NOT print black (they read as pieces) — faint tint or omit
