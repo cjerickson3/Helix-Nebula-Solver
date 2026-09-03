@@ -12,6 +12,12 @@ uv run python -m Scan.pipeline PAGE_LABEL scan_a.tiff [scan_b.tiff] [--db path] 
 
 # after one or more sheets are in the DB: rank candidate edge mates
 uv run python -m Scan.match [--db path] [--explore] [--edge N]
+
+# build / inspect the Spitzer reference registered to the puzzle print
+uv run python -m Scan.reference [--rebuild]
+
+# shortlist reference positions for each piece on a scan (human places from the list)
+uv run python -m Scan.shortlist SCAN.png [--zone x0,y0,x1,y1] [--k 15] [--piece p03] [--out DIR]
 ```
 
 - `PAGE_LABEL` — e.g. `teal-opp_p01`; becomes the `sheets.page_label` and the prefix
@@ -31,6 +37,9 @@ uv run python -m Scan.match [--db path] [--explore] [--edge N]
 | `pipeline.py` | orchestration: two passes → averaged contours → per-piece records → grid assignment → DB |
 | `match.py`    | edge matcher: **feature-anchored** descriptor (baseline from the flat shoulders, x=0 at the tab/blank feature centre, compare a fixed window, ignore the corner regions) → scalar pre-filter (opposite type, neck width, peak height, shoulder length) → feature-anchored fine fit (mirror + winding + shift/scale search, RMS) → ranked `edge_matches`. Self-calibrates the tab/blank shadow-inflation bias. Improves true-mate top-5 recall but shape alone still does not discriminate on this puzzle — see Known gaps. |
 | `solve.py`    | DFS grid solver (`python -m Scan.solve --sheet T03`): N/E/S/W↔edge mapping under 4 rotations, multi-seed from mutual-rank-1 edge matches, most-constrained-frontier expansion, grid-consistency backtracking, writes `pieces.placed_col/row/rotation`. Mechanically works; blocked on matcher quality (needs the colour-continuity descriptor). |
+| `reference.py`| the Spitzer reference (`NASA-PIA09178.tif`) registered to the puzzle print by SIFT star matching. `puzzle_frame()` → reference in the upright puzzle frame; `register()` → the cached transform. Paths default to `../Nebula_Eye/`, override via `HELIX_REFERENCE_TIF` / `HELIX_BOX_FRONT`. Caches under `resources/`. |
+| `deweave.py`  | `deweave(gray)` — FFT notch of the periodic printed-linen weave, which otherwise dominates every appearance comparison. Exposes nebula mottle + faint stars. |
+| `shortlist.py`| **not a solver** — `python -m Scan.shortlist SCAN.png [--zone …]`: for each piece, the ~15 most plausible reference positions (de-weave → 4-rotation `TM_CCOEFF_NORMED` → colour gate) rendered as a strip PNG (face + candidate crops). The human makes the final placement by eye. Session 9: autonomous appearance matching does not place the teal pieces (6 methods failed); this produces the short list a human works from. |
 
 ## Verified
 
@@ -53,15 +62,13 @@ uv run python -m Scan.match [--db path] [--explore] [--edge N]
   sheet known to be half teal, half black.
 - Guide boxes must NOT print black (they read as pieces) — faint tint or omit
   and use the acrylic jig. Fiducial corner dots: solid black, ≥ 5 mm.
-- **Shape matching is not enough to solve this puzzle.** Validated against the
-  T03 15-piece solved region: the feature-anchored matcher puts the true mate in
-  an edge's top 5 about 14/20 of the time within the region, but unrelated
-  tab/blank pairs (even across different sheets) overlay to 2-3 px just as well,
-  so `Scan.match` mutual-best pairs are mostly coincidences and `Scan.solve`
-  seeds on them (places 15/15 but only ~2/15 correctly). The pieces are too
-  geometrically uniform. Next lever: an edge colour / image-continuity descriptor
-  (the nebula image is continuous across every join) — sample LAB in a strip
-  inside each edge, require a candidate join to match in colour. Then the DFS
-  solver's grid-consistency backtracking should close it.
+- **Autonomous appearance matching does not place the low-signal pieces — six
+  methods, Sessions 7–9:** shape edge matching (three ways), edge colour
+  continuity, reference-image NCC (per-piece, joint-rigid, and de-weaved), and
+  star point-pattern matching. The teal ring-interior pieces have almost no
+  signal in shape, colour, or texture; the star field is too dense for blind
+  point matching. `Scan.match` / `Scan.solve` stay useful only as a *local*
+  tie-break once a piece is roughly placed. The shipped answer is
+  `Scan.shortlist` (CV triage) + human placement — see CLAUDE.md, Session 9.
 - `Scan/db.py` has no `ON DELETE CASCADE`; `db.delete_sheet` (called by
   `pipeline.store`) wipes a sheet + children before a re-scan.
