@@ -400,17 +400,60 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ## CURRENT STATUS — read this first
 
-**Session 7 (2026-08-30): scanning pipeline is in the repo at `Scan/` and verified on real
-scans; archival scanning of the 1000 pieces is starting.** See Session 7 in the history below.
+**2026-09-02 (Session 9): reference obtained + registered. Reference NCC works on textured
+regions but NOT on the featureless teal interior. The puzzle now splits into zones by
+solvability — some CV-solvable, one is a hand-solve zone.**
 
-**2026-09-01 update: shape matching is confirmed insufficient for solving.** Extraction,
-topology, corner detection and dual-pass geometry are all solid, but the pieces are too
-uniform for shape-based edge matching to identify true neighbours — validated three ways,
-most recently against a real 15-piece solved region (`T03`). The DFS solver
-(`Scan/solve.py`) is built and mechanically correct but seeds on shape coincidences. **The
-next step is an edge colour–image continuity descriptor** (Pending Task #4) — the nebula
-image is continuous across every join, the discriminator this puzzle has and white puzzles
-don't. Do that before more solver work.
+(Session 7, 2026-08-30: scanning pipeline in the repo at `Scan/`, verified on real scans,
+archival scanning of the 1000 pieces underway — see Session 7 in the history.)
+
+- Extraction, topology, corner detection, dual-pass geometry: all solid.
+- Spitzer reference `NASA-PIA09178.tif` (4279×3559, the 2007 "ssc2007-03a" MIPS+IRAC "Eye of
+  God") is in `Nebula_Eye/`. **Registered to the puzzle print sub-pixel** via SIFT on the
+  star field (256 RANSAC inliers) against `Box-Front.png`. Transform saved (scratchpad
+  `reg_full_transform.npy`). PIA09178 ≈ box print, mild colour-grading difference only.
+  Reference resolution over the puzzle ≈ **83–110 px per piece pitch**.
+- NCC localization **method is sound** — positive control: a patch cut from the reference is
+  re-found at peak 1.000, 0 px error.
+- **NCC does NOT localize the T03 teal pieces.** Per-piece 3–5/15 (spurious). Joint rigid
+  slide of all 15 as one unit: 0.17 ZNCC. FFT-de-weaved (notch the linen weave — it does
+  expose real nebula mottle + faint stars visually): 0.24 ZNCC, 3/15. **Fifth method to fail
+  on this piece class** (shape ×3, colour continuity, reference NCC). Cause is not the
+  method: these pieces are from a near-featureless zone — under the linen weave is only a
+  soft tone gradient, and the reference's ring *interior* is equally smooth.
+- **Zone map (rough counts for a ~1000 pc puzzle):**
+
+  | Zone | ~count | Signal | Status |
+  |---|---|---|---|
+  | Border | ~120 | topology + shape | done physically |
+  | Bright teal ring (radial filaments) | ~300 | strong texture vs reference | untested — expected to work |
+  | Red / orange core | ~150 | strong colour + brightness gradient | untested — expected to work |
+  | Dark background | ~300 | background stars | untested — the astrometry plan; reference now ready |
+  | Featureless teal interior + transition | ~150 | none (proven 5 ways) | **hand-solve zone** — T03 is this |
+
+- **T04 ground-truth test (3 real pieces the user hand-placed on the lower-right outer
+  nebula, locator = one star in a dark void):** targeted NCC restricted to that region —
+  joint 0.31 ZNCC, best single piece 0.46, scale railed; star point-pattern match — a false
+  10/24-inlier fit onto the *densest* patch of background star field. **Sixth method to fail.**
+  The human placed all three by eye in minutes off one semantically-unique feature; the CV
+  has no notion of "this configuration is distinctive".
+
+- **CONCLUSION — the winning strategy is CV triage + shortlisting, human placement.**
+  Autonomous CV placement of the low-signal zones is not achievable with this data (uniform
+  die-cut, linen weave over near-featureless teal, dense star field, iridescent specular).
+  What the software does, and does well:
+  1. **Catalog** — the `Scan/` pipeline. Working.
+  2. **Coarse zoning** — `pipeline.classify_colour` + colour gradient sort pieces into ring /
+     core / background / corner.
+  3. **Shortlisting** — `python -m Scan.shortlist SCAN.png [--zone x0,y0,x1,y1]`: for each
+     piece, the ~15 best reference positions as image crops (de-weave → 4-rotation NCC →
+     colour gate). Human picks the real one by eye. Turns "search the whole nebula" into
+     "check these 15 spots".
+  4. **Autonomous placement only where signal is strong** — border (done), possibly the
+     bright filament ring and the red-core gradient. Not the dark starfield, not the
+     featureless teal.
+- A higher-res Spitzer original would sharpen the ring filaments but will not change the
+  conclusion — not a blocker.
 
 **Session 6 pivoted the project from astrometry to geometry-first solving.**
 A literature survey found `puzzle-bot` (github.com/roksenhorn/puzzle-bot) reliably solves
@@ -511,12 +554,37 @@ order from an arbitrary corner and treat it as a cyclic string.
 
 ---
 
-## Reference Image — background, no longer critical path
+## Reference Image — obtained and registered (2026-09-02, Session 9)
 
-- The puzzle is the **2003 Hubble "Iridescent Glory" mosaic** of the Helix Nebula (NGC 7293)
-- Box credit: "NASA ESA/Hubble Space Telescope"; publisher logo STREAMLINE
-- Composite of nine Hubble ACS pointings plus the Mosaic Camera at Kitt Peak (NOAO)
-- Teal/cyan ring, red/orange centre. NOT the 2004 Cerro Tololo version; NOT JWST 2026.
+The solve strategy is: anchor each piece to its absolute position in the source image.
+Reference localization now proven to work on textured regions, not on the featureless teal
+interior — see the zone map in CURRENT STATUS.
+
+- **`Nebula_Eye/NASA-PIA09178.tif`** (4279×3559 RGB) is the reference — the 2007 Spitzer
+  "ssc2007-03a" MIPS 24µm + IRAC "Eye of God". `NASA-PIA09178-cropped.tif` (4170×3129) is a
+  hand crop; prefer computing the crop from the registration transform instead.
+- **Registered to the puzzle print** (2026-09-02): SIFT on the star field, PIA09178 →
+  `Box-Front.png` puzzle-image region, `cv2.estimateAffinePartial2D` + RANSAC, 256/918
+  inliers, rotation −88.8° (box scanned portrait), scale 1.483 (box scan is higher-res than
+  PIA09178). Overlay blend is ghost-free = sub-pixel. Transform: scratchpad
+  `reg_full_transform.npy` (ref-full → box-crop-full, box crop = `Box-Front.png`[120:6520,
+  80:4270]). The puzzle print uses ~middle 82% of PIA09178 vertically and runs ~13% past its
+  left edge (pure black sky — pad it).
+- **The puzzle image is the SPITZER infrared "Eye of God" — NOT any Hubble image.**
+  Confirmed 2026-09-02 from `Nebula_Eye/Box-Front.png`, `Assembled-Nebula.png`, the scanned
+  pieces, and now the clean SIFT registration to PIA09178.
+- **The box BACK text is a Hubble caption** ("bicycle-spoke filaments", "colorful red and
+  blue gas ring", "most detailed celestial images ever made") — that describes the 2003
+  Hubble/Kitt Peak mosaic, not the Spitzer picture actually printed. Streamline (publisher,
+  "Astrophotography" line, 1000 pc, 30"×20") mismatched picture and caption. This is what
+  sent Sessions 3–7 chasing Hubble ACS FITS. **Ignore the caption; trust the picture.**
+- The Hubble high-res composites (ESA `heic0307a` 8000², NOIRLab `noao0307a` 16000²) are the
+  WRONG image — orange ring, blue centre.
+- **Optional upgrade:** a larger Spitzer original (Spitzer Heritage Archive IRAC/MIPS
+  mosaics via IRSA) would sharpen the ring filaments. Not a blocker — PIA09178 at ~83–110
+  px/pitch is enough for the textured zones and more pixels will not help the featureless
+  interior.
+- Old MAST/HLA/FITS notes below are for the Hubble image — a dead end for this puzzle.
 - MAST portal: `https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html`, search NGC 7293
 - **The ACS footprint covers only the inner nebula.** The outer halo — where the unplaced
   pieces live — is the Kitt Peak part, which isn't in MAST at all. There is no single FITS
@@ -538,25 +606,54 @@ pair as a regression test that the code degrades gracefully when fiducials are a
 
 ### 3. Run the scanning pipeline in `Scan/`
 Package lives at repo root (`Scan/`), run as `uv run python -m Scan.pipeline PAGE_LABEL a.tiff b.tiff`.
-Verified end-to-end on `T01a/b` and `36-page1a/b` in Session 7 — reproduces the documented
-172 µm boundary figure. Default DB path is `resources/helix_pieces.db` (gitignored).
-Still to do: validate `colour_class` against a known teal/black sheet; test with fiducials present.
+Default DB path is `resources/helix_pieces.db` (gitignored).
 
-### 4. Edge colour–image continuity descriptor (the current blocker — do this first)
-Shape matching is confirmed insufficient on this puzzle (three separate validations now,
-most recently against the T03 15-piece solved region: `Scan.match` mutual-best pairs are all
-shape coincidences between unrelated pieces at 2–3 px; the DFS solver places 15/15
-mechanically but only 2/15 correctly because it seeds on those coincidences). The pieces are
-too geometrically uniform.
-The lever this puzzle has that puzzle-bot (white pieces) doesn't: the printed nebula image is
-continuous across every join. Plan:
-- In `Scan.scan`/`pipeline`, sample LAB (and maybe a small texture/gradient stat) in a thin
-  strip just inside the contour along each edge; store it on `edges` (add `color_blob` back).
-- In `Scan.match`, add a colour-continuity score: a candidate join must match in colour
-  along its length. Shape drops to a weak pre-filter; colour does the discrimination.
-- Then re-run the T03 solver — it already has the grid-consistency backtracking (`Scan/solve.py`).
-The user already solves by hand this way ("built from the colour boundary" — the teal
-ring edge, the red-centre boundary).
+**Archival scan status (2026-09-02, Session 9):** DB holds **673 pieces / 2692 edges, 23
+sheets** — T02, T03, P01, P02, and **P04–P22** (568 pieces batched in, all fiducial
+homography pairing). 18 of the 19 P-sheets clean at 161–176 µm. Still to do:
+- **P11 needs a re-scan** — boundary agreement 1288 µm (vs ~170), pair-centroid residual
+  60 px (vs ~17): its fiducial homography misfit and the dual-pass averaging is misaligned.
+  The 30 rows are in the DB but their contours are unreliable. `db.delete_sheet(conn,"P11")`
+  then re-run once re-scanned.
+- **`classify_colour` is mis-binning teal** — 34 teal / 412 dark / 227 other across the DB,
+  but ~6 P-sheets are teal stock. Teal pieces on the "Festive Red" backing fall under the
+  `L < 60` dark cutoff. Re-tune against P04 (all teal) vs P06 (all black); geometry/topology
+  unaffected.
+- 3-tab sheets P12–P14 have the expected shaky-corner warnings (2–5 pieces each,
+  `corner_dev` up to 0.32) — documented limitation, geometry is fine.
+
+### 4. Use the shortlisting tool; solve by zone (see the zone map + CONCLUSION in CURRENT STATUS)
+Autonomous CV placement of the low-signal zones is dead (6 methods, Sessions 7–9). The
+software's role is triage + shortlisting; the human places. Tooling shipped Session 9:
+`Scan/reference.py` (Spitzer reference registered to the print), `Scan/deweave.py` (FFT
+weave notch), `Scan/shortlist.py` (per-piece top-k reference-position crops).
+
+**4a. Shortlist workflow (working now).**
+`uv run python -m Scan.shortlist SCAN.png --zone x0,y0,x1,y1` → one strip PNG per piece:
+face + the ~15 best reference positions, de-weaved 4-rotation NCC, colour-gated. Pick the
+real spot by eye. `--zone` from `resources/reference_puzzle_frame.png` (6400×4190, ~165
+px/pitch) cuts false peaks a lot. Tune: `FACE_PITCH_RATIO`, `COLOUR_GATE`, `HP_SIGMA` in
+`shortlist.py`.
+
+**4b. Star point-pattern matching — the ~300 dark-background pieces.** The dark pieces have
+real stars against true black (unlike the teal, where de-weave "stars" are mostly noise).
+De-weave → *true* point sources (aperture photometry / DoG, not a percentile count) → match
+the local asterism to the registered reference star field. Worth building as a proper mode;
+the T04 teal test gave a false match (dense-field overfit) but dark pieces are a better case.
+
+**4c. Autonomous NCC — only worth trying on bright filament-ring + red-core pieces.**
+Strong texture / strong colour gradient. Re-run the joint-rigid test (scratchpad
+`t03_joint.py`) on a few. If ZNCC ≳ 0.5 those zones can auto-place.
+
+**4d. Featureless teal interior + transition (~150 pc) — hand zone.** Proven CV-unsolvable
+(T03, T04). Shortlist tool assists; no more solver effort here.
+
+Shape (`Scan/match.py`), colour continuity (scratchpad `solve15.py`), DFS grid-consistency
+(`Scan/solve.py`) stay as the *local* tie-break on top of whichever method placed a piece.
+
+Session 9 scratchpad scripts (not committed — superseded by the `Scan/` modules):
+`register.py`, `t03_localize.py`, `t03_joint.py`, `t03_joint_dw.py`, `t03_sanity.py`,
+`deweave.py` (early), `t04_look.py`, `t04_solve.py`, `t04_stars.py`.
 
 ### 5. Later — port puzzle-bot's techniques
 Read their 44-page writeup, particularly corner enhancement and side comparison. Note their
@@ -567,6 +664,109 @@ pre-filtering strategy.
 ---
 
 ## Session History
+
+### Session 9 — Spitzer reference obtained + registered; NCC fails on featureless teal; zone strategy (2026-09-02)
+
+**Reference obtained.** User downloaded `Nebula_Eye/NASA-PIA09178.tif` (4279×3559, the 2007
+Spitzer "ssc2007-03a" MIPS 24µm + IRAC "Eye of God") + a hand crop `NASA-PIA09178-cropped.tif`.
+
+**Registration to the puzzle print: clean.** SIFT on the star field, PIA09178 →
+`Box-Front.png` puzzle-image region (`Box-Front.png`[120:6520, 80:4270], box scanned
+portrait). `cv2.estimateAffinePartial2D` + RANSAC: 256/918 inliers, rot −88.8°, scale 1.483.
+Overlay blend ghost-free (sub-pixel). Confirms PIA09178 *is* the box image (mild grading
+diff only). Transform saved: scratchpad `reg_full_transform.npy`. Puzzle print uses ~middle
+82% of PIA09178 vertically, runs ~13% past its left edge (black sky). Reference resolution
+over the puzzle ≈ 83–110 px/pitch.
+
+**NCC localization method verified sound** — positive control (`t03_sanity.py`): a patch cut
+from the reference is re-found at peak 1.000, 0 px.
+
+**But NCC does NOT localize the T03 teal pieces.**
+- Per-piece NCC over the whole reference, 4 rotations (`t03_localize.py`): 3–5/15 in a
+  grid-consistent spot, and `TM_CCORR_NORMED` scores all pinned ~0.93 (brightness-dominated,
+  no discrimination on dark imagery).
+- Joint rigid slide of all 15 as one unit, proper `TM_CCOEFF_NORMED` (`t03_joint.py`): joint
+  ZNCC 0.17, per-piece median 0.17. The solver parks the cluster on the flattest reference
+  patch.
+- FFT-de-weave the linen (scratchpad `deweave.py` — regular lattice, cleanly notched; does
+  expose real nebula mottle + faint stars visually) then joint NCC (`t03_joint_dw.py`):
+  0.24 ZNCC, 3/15. Still no solve.
+- **Fifth independent method to fail on this piece class** (shape ×3 in Sessions 7–8, colour
+  continuity in Session 8, reference NCC now). Root cause: the T03 pieces are from a
+  near-featureless zone — under the linen weave is only a soft tone gradient, and the
+  reference's ring *interior* is equally smooth. Not a fixable data/method problem.
+
+**Strategic outcome: zone map.** The puzzle splits by solvability — border (done),
+bright teal ring / red core (strong signal, expected CV-solvable, untested), dark background
+(~300 pc, star point-pattern matching — the astrometry plan, reference now ready), and the
+featureless teal interior + transition (~150 pc, T03's zone, **CV-unsolvable — hand
+assembly**). Full table in CURRENT STATUS.
+
+**T04 ground-truth test — 3 real pieces the user hand-placed.** `Nebula_Eye/T04-3-of-15teal.png`
+(3 interlocked teal pieces, on the black-fiducial red sheet). User placed them on the
+lower-right outer nebula by eye, locator = one bright star in a dark void.
+- Targeted joint NCC restricted to that region (`t04_solve.py`): joint 0.31 ZNCC, best
+  single piece 0.46, scale railed to the search edge. Roughly the right area, not a lock.
+- Star point-pattern match (`t04_stars.py`): RANSAC over triangle correspondences, piece
+  constellation vs ~250 reference stars in the ROI. "Best" 10/24 inliers but a **false
+  match** — projected the constellation onto the densest patch of background star field.
+  Blind point-pattern matching is ambiguous against a dense field with uncertain piece-star
+  detections (the teal-piece "stars" from de-weave are mostly noise; dark pieces will be
+  cleaner).
+- **Sixth method to fail on the low-signal pieces.**
+
+**CONCLUSION: CV triage + shortlisting, human placement.** Autonomous CV placement of the
+low-signal zones is not achievable with this data. Shipped Session 9:
+- `Scan/reference.py` — the Spitzer reference registered to the print. `puzzle_frame()`
+  returns it in the upright puzzle frame (cached `resources/reference_puzzle_frame.png`,
+  6400×4190, ~165 px/pitch); `register()` caches the SIFT transform
+  (`resources/reference_registration.npz`). Paths default to `../Nebula_Eye/`, override via
+  `HELIX_REFERENCE_TIF` / `HELIX_BOX_FRONT`.
+- `Scan/deweave.py` — `deweave(gray)` FFT notch of the periodic linen weave.
+- `Scan/shortlist.py` — `python -m Scan.shortlist SCAN.png [--zone x0,y0,x1,y1] [--k 15]
+  [--piece p03]`. Per piece: de-weave → 4-rotation `TM_CCOEFF_NORMED` → greedy peak pick +
+  NMS → LAB colour gate → strip PNG (face + top-k reference crops, rotated to match,
+  labelled rank/NCC/xy). Verified on T04: 12 candidates/piece, runs in seconds with `--zone`.
+  Scores are low (0.3–0.4, honest) but the visual shortlist lets the human match the
+  distinctive feature fast. Tunables: `FACE_PITCH_RATIO`, `COLOUR_GATE`, `HP_SIGMA`.
+
+### Session 8 — Colour continuity tried; puzzle image is Spitzer; pivot to reference localization (2026-09-01/02)
+
+**Corner detection fix + feature-anchored matcher + DFS scaffold** committed/pushed
+(`c34b40a`). Corner fix: `find_corners` fast path now gates on corner turn angle, and
+`_corner_set_quality` has a `_turn_penalty` — fixes the rotated-square failure on 3-tab
+pieces (big tabs → big morph radius → round body → minAreaRect ~40° off). `db.delete_sheet`
+added (re-scanning a sheet tripped the pieces FK). `Scan/match.py` rewritten feature-anchored
+(baseline off the flat shoulders, x=0 at the feature centre, ignore corners): true-mate
+top-5 recall in the T03 region 4/20 → 14/20, but prefilter power dropped and it still can't
+discriminate globally. `Scan/solve.py` DFS scaffold: places T03 15/15 mechanically, ~2/15
+correct (seeds on shape coincidences).
+
+**T03 solved-region test data:** `Nebula_Eye/T03{a,b}-expanded.png` — 15 real assembled teal
+pieces, glued in solved arrangement but spread apart for clean contours. Stored as sheet
+`T03` with true grid. The connected-region validation set.
+
+**Colour continuity built and tested (scratchpad `solve15.py`), caps at ~4/15.** 2D LAB
+strip just inside each edge (chord-normal, past the shadow rim), scored by seam colour match
++ gradient cancellation, combined with shape, beam search + grid consistency. Strong-signal
+joins rank top few % (F1-G1, D3-E3, C2-C3, E1-E2, A2-B2); ~half the joins in this uniform
+teal patch have negligible colour signal (rank 400-1100). The directional edge shadow
+corrupts the L channel on vertical joins — fix is pass-A/B colour-strip averaging (attempt
+had a grid-pairing bug on the staggered layout). **Local matching, shape or colour, is not
+enough on this puzzle.**
+
+**Puzzle image identified: SPITZER infrared, not Hubble.** `Box-Front.png` / `Assembled-
+Nebula.png` / the pieces are all teal-ring + red-centre = Spitzer "Eye of God". The box-back
+text is a Hubble caption (bicycle-spoke filaments, red/blue gas ring) — a Streamline
+publisher mismatch that sent Sessions 3-7 after Hubble ACS FITS. Hubble high-res composites
+(ESA heic0307a 8000², NOIRLab noao0307a 16000²) are the wrong (orange/blue) image.
+
+**Decision: pivot to reference-image localization.** Anchor each piece to its absolute
+position in the Spitzer source (patch NCC for textured pieces, star point-pattern for dark
+ones); shape+colour only refine. Robust to low local texture — which is the failure mode.
+Blocker: get a high-res Spitzer Helix image (user working on it 2026-09-02+; `Box-Front.png`
+5100×6600 is a stopgap). New files in `Nebula_Eye/`: `Box-Front.png`, `Box-Back.png`,
+`Assembled-Nebula.png`, `Border.JPEG`.
 
 ### Session 7 — Archival scanning begins; pipeline in-repo and verified (2026-08-30)
 
