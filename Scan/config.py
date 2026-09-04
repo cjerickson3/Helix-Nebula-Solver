@@ -14,6 +14,9 @@ MM_PER_INCH = 25.4
 # Threshold is expressed as a FRACTION of the measured backing level, never as an
 # absolute. Absolute 95 against a backing of 167 gave the validated results; storing
 # the ratio means the pipeline survives a new batch of card stock or lamp ageing.
+# Confirmed across three stocks (backing -> threshold): magenta 167 -> 95,
+# "Festive Red" 193 -> 110, "Holiday Red" 170 -> 97. No edit needed when the stock
+# changes -- the pipeline re-measures the backing per scan.
 THRESHOLD_RATIO = 95.0 / 167.0        # ~0.569
 THRESHOLD_FALLBACK = 95               # used only if backing detection fails
 

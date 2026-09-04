@@ -472,9 +472,9 @@ across 36 pieces.
 
 | Quantity | Value | Notes |
 |---|---|---|
-| Backing (magenta card), red channel | R = 167 | measure per scan; don't hardcode |
-| Puzzle pieces, red channel | R = 0–57 | teal and black both well below threshold |
-| Threshold | R = 95 | ≈0.57 × backing mode — store the RATIO, not the absolute |
+| Backing, red channel | R = 167 (magenta), 193 ("Festive Red"), 170 ("Holiday Red") | measure per scan; don't hardcode. `THRESHOLD_RATIO` absorbs the stock change — no config edit |
+| Puzzle pieces, red channel | R = 0–57 (dark/black), up to ~70 mean + specular spikes (light teal) | dark pieces sit far below threshold; the lightest bright-teal pieces run ~12–16% of core px above it, still extract fine (morph close fills highlight holes) |
+| Threshold | R = 95 (magenta) → 110 (Festive) → 97 (Holiday) | ≈0.57 × backing mode — store the RATIO, not the absolute; auto-tracks the stock |
 | Piece area | 186k–242k px | at 600 dpi |
 | Largest non-piece contour (dust) | ~315 px | 3 orders of magnitude gap; segmentation is trivial |
 | Piece bounding box | 24.0–29.6 mm | 23% size variation |
