@@ -608,13 +608,12 @@ pair as a regression test that the code degrades gracefully when fiducials are a
 Package lives at repo root (`Scan/`), run as `uv run python -m Scan.pipeline PAGE_LABEL a.tiff b.tiff`.
 Default DB path is `resources/helix_pieces.db` (gitignored).
 
-**Archival scan status (2026-09-02, Session 9):** DB holds **673 pieces / 2692 edges, 23
-sheets** — T02, T03, P01, P02, and **P04–P22** (568 pieces batched in, all fiducial
-homography pairing). 18 of the 19 P-sheets clean at 161–176 µm. Still to do:
-- **P11 needs a re-scan** — boundary agreement 1288 µm (vs ~170), pair-centroid residual
-  60 px (vs ~17): its fiducial homography misfit and the dual-pass averaging is misaligned.
-  The 30 rows are in the DB but their contours are unreliable. `db.delete_sheet(conn,"P11")`
-  then re-run once re-scanned.
+**Archival scan status (Session 9):** DB holds **673 pieces / 2692 edges, 23
+sheets** — T02, T03, P01, P02, and **P04–P22** (568 pieces, all fiducial homography
+pairing), all clean at 161–176 µm. P11 was re-scanned 2026-09-03
+(`p11a/b-09-03-26-black-opposed.png`) and re-run — 174 µm, replaces the bad 2026-09-02 pass.
+Still loose / not yet scanned: ~160 assembled-region pieces and ~150 border pieces in
+`Nebula_Eye/` (the T03/T04-style connected regions and `Border.JPEG`). Still to do:
 - **`classify_colour` is mis-binning teal** — 34 teal / 412 dark / 227 other across the DB,
   but ~6 P-sheets are teal stock. Teal pieces on the "Festive Red" backing fall under the
   `L < 60` dark cutoff. Re-tune against P04 (all teal) vs P06 (all black); geometry/topology
