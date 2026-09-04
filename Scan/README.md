@@ -58,8 +58,10 @@ uv run python -m Scan.shortlist SCAN.png [--zone x0,y0,x1,y1] [--k 15] [--piece 
   `_corner_set_quality`. `pieces.corner_dev` flags anything still shaky
   (clean ≤ 0.14). The phase estimator assumes a roughly-rectangular piece with
   even edges; a wildly non-standard die-cut would need the curvature path.
-- `pipeline.classify_colour` thresholds are a first guess — calibrate against a
-  sheet known to be half teal, half black.
+- `pipeline.classify_colour` tuned against P04 (teal stock) / P06 (black stock),
+  ~90% each way (`config.COLOUR_*`). The classes overlap for dark ring-interior
+  teal vs faintly-green black, so that is close to the mean-LAB ceiling; a
+  fraction-of-green-pixels feature could push it further if ever needed.
 - Guide boxes must NOT print black (they read as pieces) — faint tint or omit
   and use the acrylic jig. Fiducial corner dots: solid black, ≥ 5 mm.
 - **Autonomous appearance matching does not place the low-signal pieces — six

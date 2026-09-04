@@ -61,6 +61,19 @@ SMOOTH_SIGMA = 6.0            # Gaussian sigma along the contour, in samples
 # ---------------------------------------------------------------- morphology
 MORPH_KERNEL = 5
 
+# ---------------------------------------------------------------- colour class
+# Coarse pre-filter buckets for pipeline.classify_colour: "teal" (nebula ring),
+# "dark" (background), "other". OpenCV LAB, 0-255, a/b offset by 128 -- negative
+# a is green. Tuned Session 9 against P04 (teal stock) vs P06 (black stock):
+# 90% / 90% on those exemplars. The classes genuinely overlap -- dark ring-interior
+# teal pieces (a ~ -2..-4, L ~ 40-55) sit on top of faintly-green-cast black
+# pieces -- so ~10% either-way error is the floor from mean LAB alone.
+COLOUR_TEAL_A_MAX  = -4.0     # mean a below this => teal (absolute green cast)
+COLOUR_TEAL_AB_MAX = -6.0     # or (a<0 and a - b below this) => teal (green-dominant;
+                             # the a<0 guard keeps warm pieces -- positive b, a~0,
+                             # e.g. the red centre -- out of the teal bucket)
+COLOUR_DARK_L_MAX  = 55.0     # not teal and mean L below this => dark background
+
 # ---------------------------------------------------------------- edge classification
 # Deviation of an edge from its corner-to-corner chord, as a fraction of chord length.
 BORDER_MAX_DEVIATION = 0.04   # flatter than this => BORDER

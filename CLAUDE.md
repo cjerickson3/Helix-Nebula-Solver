@@ -613,11 +613,13 @@ sheets** — T02, T03, P01, P02, and **P04–P22** (568 pieces, all fiducial hom
 pairing), all clean at 161–176 µm. P11 was re-scanned 2026-09-03
 (`p11a/b-09-03-26-black-opposed.png`) and re-run — 174 µm, replaces the bad 2026-09-02 pass.
 Still loose / not yet scanned: ~160 assembled-region pieces and ~150 border pieces in
-`Nebula_Eye/` (the T03/T04-style connected regions and `Border.JPEG`). Still to do:
-- **`classify_colour` is mis-binning teal** — 34 teal / 412 dark / 227 other across the DB,
-  but ~6 P-sheets are teal stock. Teal pieces on the "Festive Red" backing fall under the
-  `L < 60` dark cutoff. Re-tune against P04 (all teal) vs P06 (all black); geometry/topology
-  unaffected.
+`Nebula_Eye/` (the T03/T04-style connected regions and `Border.JPEG`).
+- **`classify_colour` re-tuned Session 9** against P04 (teal stock) vs P06 (black stock):
+  teal = green cast (`a < -4`, or `a<0 and a-b < -6`); dark = not-green and `L < 55`.
+  **90% / 90%** on those exemplars — near the ceiling, the classes overlap in the
+  `a ~ -2..-5, L ~ 40..55` band (dark ring-interior teal vs faintly-green-cast black).
+  DB reclassified in place: **313 teal / 353 dark / 7 other** (was 34 / 412 / 227).
+  Thresholds in `config.COLOUR_*`.
 - 3-tab sheets P12–P14 have the expected shaky-corner warnings (2–5 pieces each,
   `corner_dev` up to 0.32) — documented limitation, geometry is fine.
 

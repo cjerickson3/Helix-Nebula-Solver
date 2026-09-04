@@ -16,17 +16,24 @@ from . import config, scan, geometry, db
 # -------------------------------------------------------------------- colour
 
 def classify_colour(mean_lab) -> str:
-    """Coarse colour class from mean LAB.
+    """Coarse colour class from mean LAB: 'teal' | 'dark' | 'other'.
 
-    Only three buckets, because that is all the solver needs as a pre-filter:
-    teal ring, dark background, everything else. OpenCV LAB is 0-255 with the
-    a/b channels offset by 128.
+    Only three buckets, because that is all the pre-filter needs: teal ring, dark
+    background, everything else. OpenCV LAB is 0-255 with a/b offset by 128, so
+    negative `a` is a green cast -- the signature of the teal coating, and it
+    holds from bright ring teal down to dark ring-interior teal (the lightness
+    varies far more than the hue). `dark` is then whatever is dark and *not*
+    green. Thresholds and provenance in config; ~90% vs P04/P06 exemplars, which
+    is near the ceiling for mean LAB (the two classes overlap in the a ~ -2..-5,
+    L ~ 40..55 band).
     """
-    L, a, b = float(mean_lab[0]), float(mean_lab[1]) - 128.0, float(mean_lab[2]) - 128.0
-    if L < 60:
-        return "dark"
-    if b < -5 and a < 5:
+    L = float(mean_lab[0])
+    a = float(mean_lab[1]) - 128.0
+    b = float(mean_lab[2]) - 128.0
+    if a < config.COLOUR_TEAL_A_MAX or (a < 0.0 and a - b < config.COLOUR_TEAL_AB_MAX):
         return "teal"
+    if L < config.COLOUR_DARK_L_MAX:
+        return "dark"
     return "other"
 
 
