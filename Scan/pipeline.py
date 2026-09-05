@@ -154,11 +154,16 @@ class SheetResult:
     diagnostics: dict
 
 
-def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
-    """Process one sheet: two passes if available, one if not."""
+def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True, channel=0):
+    """Process one sheet: two passes if available, one if not.
+
+    `channel` is the threshold channel: red (0, default) for the normal
+    teal/dark stock, green (1) for pieces whose own colour collides with red
+    backing (see `Scan.scan.red_channel`).
+    """
     img_a = scan.load_scan(scan_a_path)
-    pieces_a, diag_a = scan.extract_pieces(img_a)
-    fid_a = scan.detect_fiducials(img_a)
+    pieces_a, diag_a = scan.extract_pieces(img_a, channel=channel)
+    fid_a = scan.detect_fiducials(img_a, channel=channel)
 
     if verbose:
         print(f"[{page_label}] pass A: {len(pieces_a)} pieces, "
@@ -174,8 +179,8 @@ def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
 
     if scan_b_path:
         img_b = scan.load_scan(scan_b_path)
-        pieces_b, diag_b = scan.extract_pieces(img_b)
-        fid_b = scan.detect_fiducials(img_b)
+        pieces_b, diag_b = scan.extract_pieces(img_b, channel=channel)
+        fid_b = scan.detect_fiducials(img_b, channel=channel)
         if verbose:
             print(f"[{page_label}] pass B: {len(pieces_b)} pieces, "
                   f"fiducials {'yes' if fid_b.found else 'no'}")
@@ -262,6 +267,25 @@ def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True):
             print(f"        {r['piece_label']:10s} corner_dev {r['corner_dev']:.2f}  "
                   f"{r['edge_sequence']}")
 
+    # A warm/red piece can measure close enough to red backing in the red
+    # channel that only its shadow rim clears threshold, giving an undersized,
+    # geometrically distorted contour in BOTH scan orientations (not a
+    # per-orientation shadow effect) -- see CLAUDE.md, the P25 A4/A5/B4/B5 case.
+    areas = [r["area_px"] for r in records]
+    med_area = float(np.median(areas)) if areas else 0.0
+    collision = [r for r in records if med_area
+                and r["area_px"] < config.AREA_COLLISION_FRAC * med_area
+                and (r["mean_a"] - 128.0) > config.WARM_A_WARN]
+    diag_a["colour_collision"] = [r["piece_label"] for r in collision]
+    if verbose and collision:
+        print(f"    WARNING: {len(collision)} piece(s) undersized AND warm-toned -- "
+              f"likely colour-collision with red backing, rescan on green "
+              f"(--channel green):")
+        for r in sorted(collision, key=lambda r: r["area_px"]):
+            print(f"        {r['piece_label']:10s} area {r['area_px']:.0f} "
+                  f"({r['area_px'] / med_area * 100:.0f}% of sheet median)  "
+                  f"a-128 {r['mean_a'] - 128.0:+.1f}")
+
     if verbose and finite:
         mm = np.mean(finite) / config.DPI * config.MM_PER_INCH * 1000
         print(f"    boundary agreement: {np.mean(finite):.2f} px ({mm:.0f} um), "
@@ -297,9 +321,12 @@ def main():
     ap.add_argument("scan_b", nargs="?", default=None)
     ap.add_argument("--db", default="resources/helix_pieces.db")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--channel", choices=("red", "green", "blue"), default="red",
+                    help="threshold channel -- green for red/orange pieces on red backing")
     args = ap.parse_args()
 
-    result = process_sheet(args.page_label, args.scan_a, args.scan_b)
+    channel = {"red": 0, "green": 1, "blue": 2}[args.channel]
+    result = process_sheet(args.page_label, args.scan_a, args.scan_b, channel=channel)
     if args.dry_run:
         print(f"\ndry run -- {len(result.records)} records not written")
         return

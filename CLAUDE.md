@@ -400,12 +400,53 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ## CURRENT STATUS — read this first
 
-**2026-09-02 (Session 9): reference obtained + registered. Reference NCC works on textured
-regions but NOT on the featureless teal interior. The puzzle now splits into zones by
-solvability — some CV-solvable, one is a hand-solve zone.**
+**2026-09-04 (Session 10): whole-block SIFT+ZNCC registration WORKS (0.751, a real lock) —
+the red/orange core zone prediction is confirmed, not just theorized. Center-block archival
+scan (P23-P26, ~130 pieces) complete, including discovery and fix of a real scanning-method
+gap: red/orange pieces collide with red backing regardless of scan orientation.**
 
-(Session 7, 2026-08-30: scanning pipeline in the repo at `Scan/`, verified on real scans,
-archival scanning of the 1000 pieces underway — see Session 7 in the history.)
+- **Anchor-and-grow validated at scale.** A photo of the ~150pc hand-assembled center block
+  (`Nebula_Eye/Assembled-Nebula.png`) registers against `Scan.reference.puzzle_frame()` via
+  SIFT + a sharp single-lobe ZNCC peak (0.751 at the fit, <0.4 one piece-pitch away, negative
+  by three) — dramatically above every prior real localization (T04's 0.31-0.46, which turned
+  out to be a false lock). Two lessons: **always match SIFT against `puzzle_frame()`, never
+  the raw reference TIF** (a raw-TIF attempt "succeeded" with 52 inliers but a geometrically
+  impossible transform — plausible-looking garbage); and a large, richly-textured connected
+  region is a fundamentally easier registration problem than isolated pieces, confirming the
+  zone map's prediction for the red/orange core (see Pending Task 4c, now validated not
+  hypothetical).
+- **Colour-collision discovery: red/orange pieces vs red backing.** A piece whose own colour
+  is close to the red/magenta backing clears the red-channel threshold only via its shadow
+  rim, in BOTH scan orientations — not a per-pass shadow effect. Symptom: undersized,
+  geometrically distorted contour (as low as 34% of healthy area) or, worse, **total
+  non-detection** in one or even both passes (P25-A5, P23-E5/F5 never appeared at all in the
+  original red scan). Root-caused by comparing local red-channel histograms at the same
+  location across both passes — nearly identical, ruling out shadow direction as the cause.
+  **Fix: scan those pieces on saturated GREEN backing instead** (complementary hue — a
+  red/orange piece is reliably low-green regardless of exact shade). `Scan/scan.py` and
+  `Scan/pipeline.py` gained a `channel` parameter (0=red default, 1=green, 2=blue) with zero
+  behaviour change for existing sheets; CLI via `--channel green`.
+  `pipeline.process_sheet` now also auto-warns on any piece that is both undersized (<80% of
+  the sheet's own median area) and warm-toned (`config.AREA_COLLISION_FRAC`,
+  `config.WARM_A_WARN`) so this doesn't need another manual audit.
+- **Whole-DB audit after the fix: clean.** All 803 pieces / 27 sheets checked — zero
+  collision candidates outside the fixed P23-P26 region, zero pieces undersized for any
+  other reason. The problem was fully isolated to the red/orange core material.
+- **`Scan/db.py` gained `replace_piece()`** — swap in one corrected piece by label without
+  touching the rest of its sheet (deletes the old piece's edges/piece_colors first, since
+  there's no `ON DELETE CASCADE`). Added after a real bug this session: reconstructing a
+  sheet's "keep" list from a fresh reprocess of the original scan silently reverted
+  already-fixed pieces that weren't part of *that* round's replacement set. Caught by
+  spot-checking, fixed by restoring from the green-scan sources and switching to
+  `replace_piece` for any future partial-sheet update.
+- Center block now in the DB with true adjacency preserved: **P23 (28pc), P24 (40pc), P25
+  (33pc), P26 (29pc)** — up from the original captures (some pieces were pure recoveries,
+  never detected at all before the green rescan). Reference photo of the whole assembled
+  block, `Assembled-Nebula.png`, shows one physical gap and a couple of stray unattached
+  pieces near the border — not yet reconciled against the DB piece-by-piece.
+
+(Session 9, 2026-09-02: reference obtained + registered; NCC failed on the featureless teal
+interior; the zone-map/hand-solve-zone strategy below was the conclusion at the time.)
 
 - Extraction, topology, corner detection, dual-pass geometry: all solid.
 - Spitzer reference `NASA-PIA09178.tif` (4279×3559, the 2007 "ssc2007-03a" MIPS+IRAC "Eye of
@@ -427,7 +468,7 @@ archival scanning of the 1000 pieces underway — see Session 7 in the history.)
   |---|---|---|---|
   | Border | ~120 | topology + shape | done physically |
   | Bright teal ring (radial filaments) | ~300 | strong texture vs reference | untested — expected to work |
-  | Red / orange core | ~150 | strong colour + brightness gradient | untested — expected to work |
+  | Red / orange core | ~150 | strong colour + brightness gradient | **CONFIRMED Session 10 — whole-block SIFT+ZNCC 0.751** |
   | Dark background | ~300 | background stars | untested — the astrometry plan; reference now ready |
   | Featureless teal interior + transition | ~150 | none (proven 5 ways) | **hand-solve zone** — T03 is this |
 
@@ -608,12 +649,15 @@ pair as a regression test that the code degrades gracefully when fiducials are a
 Package lives at repo root (`Scan/`), run as `uv run python -m Scan.pipeline PAGE_LABEL a.tiff b.tiff`.
 Default DB path is `resources/helix_pieces.db` (gitignored).
 
-**Archival scan status (Session 9):** DB holds **673 pieces / 2692 edges, 23
-sheets** — T02, T03, P01, P02, and **P04–P22** (568 pieces, all fiducial homography
-pairing), all clean at 161–176 µm. P11 was re-scanned 2026-09-03
-(`p11a/b-09-03-26-black-opposed.png`) and re-run — 174 µm, replaces the bad 2026-09-02 pass.
-Still loose / not yet scanned: ~160 assembled-region pieces and ~150 border pieces in
-`Nebula_Eye/` (the T03/T04-style connected regions and `Border.JPEG`).
+**Archival scan status (Session 10):** DB holds **803 pieces, 27 sheets** — T02, T03, P01,
+P02, P04–P22 (as of Session 9), plus **P23–P26** (the hand-assembled center block, ~130
+pieces, true grid adjacency preserved from the physical arrangement). P11 was re-scanned
+2026-09-03 and re-run — 174 µm, replaces the bad 2026-09-02 pass. Still loose / not yet
+scanned: ~150 border pieces in `Nebula_Eye/Border.JPEG`, plus reconciling
+`Assembled-Nebula.png`'s one visible gap and stray unattached pieces against the DB.
+- **Colour-collision fix (Session 10):** red/orange core pieces need `--channel green`
+  (saturated green backing) — see CURRENT STATUS. `Scan/config.py` gained
+  `AREA_COLLISION_FRAC` (0.80) and `WARM_A_WARN` (15.0) for the auto-warning.
 - **`classify_colour` re-tuned Session 9** against P04 (teal stock) vs P06 (black stock):
   teal = green cast (`a < -4`, or `a<0 and a-b < -6`); dark = not-green and `L < 55`.
   **90% / 90%** on those exemplars — near the ceiling, the classes overlap in the
@@ -642,9 +686,13 @@ De-weave → *true* point sources (aperture photometry / DoG, not a percentile c
 the local asterism to the registered reference star field. Worth building as a proper mode;
 the T04 teal test gave a false match (dense-field overfit) but dark pieces are a better case.
 
-**4c. Autonomous NCC — only worth trying on bright filament-ring + red-core pieces.**
-Strong texture / strong colour gradient. Re-run the joint-rigid test (scratchpad
-`t03_joint.py`) on a few. If ZNCC ≳ 0.5 those zones can auto-place.
+**4c. Autonomous NCC on bright filament-ring + red-core pieces — CONFIRMED working
+(Session 10).** Whole-block SIFT+ZNCC on the assembled center-block photo scored 0.751, a
+sharp single-lobe peak — well above the ≳0.5 bar. Next step: now that ~130 of that block's
+pieces are individually scanned (P23-P26) with real adjacency, test whether the *individual
+piece* geometry (not just the whole-block photo) can be placed against the reference the
+same way, growing outward from this anchored region into the surrounding bright-ring/
+transition pieces per the anchor-and-grow strategy.
 
 **4d. Featureless teal interior + transition (~150 pc) — hand zone.** Proven CV-unsolvable
 (T03, T04). Shortlist tool assists; no more solver effort here.
@@ -665,6 +713,88 @@ pre-filtering strategy.
 ---
 
 ## Session History
+
+### Session 10 — Whole-block registration confirmed; center-block scan; colour-collision found and fixed (2026-09-04)
+
+**Anchor-and-grow strategy validated at scale.** Prompted by the user's conversation with
+another Claude session about giving visual cues more weight and searching locally rather
+than globally: rather than continuing isolated-piece localization (T03/T04, both failed),
+tested whether a large connected region registers against the reference. The user's
+`Nebula_Eye/Assembled-Nebula.png` (a photo of the ~150pc hand-solved center block, spanning
+red core through the dark transition into the bright teal ring, one visible piece-gap, a
+couple of stray unattached pieces near the border) was matched via SIFT against
+`Scan.reference.puzzle_frame()`. Result: **0.751 ZNCC, a sharp single-lobe peak** (0.40 one
+piece-pitch away, negative by three) — the first unambiguous, high-confidence registration
+this project has produced, far above T04's 0.31-0.46 (which was a false lock). A first
+attempt matching directly against the raw, un-rotated reference TIF instead of
+`puzzle_frame()` gave a plausible-looking but geometrically impossible fit (52 "inliers",
+corners projecting far outside the reference canvas) — **lesson: always register against
+`puzzle_frame()`, never the raw TIF.**
+
+**Decision: disassemble and individually scan the center block**, preserving true grid
+adjacency by spacing pieces on card stock in their real relative rows/columns (the same
+technique validated for T03), rather than reflowing into the standard 5×6 topology jig.
+
+**Archival scan: P23 (upper-left, 26pc), P24 (lower-left, 38pc), P25 (upper-right, 32pc,
+after a redo — see below), P26 (lower-right, 28pc).** Caught one real scanning error along
+the way: `P25a`/`P25b`'s first pass paired at 487 µm / 101px worst (vs. the usual
+~170-250 µm) with a 32-vs-31 piece-count mismatch. Traced to a single piece (column A, rows
+3-4) that had shifted between the two passes and merged with a neighbour in one of them —
+re-seating it and rescanning fixed it completely (same numbers reappeared identically on the
+first "fix" attempt, which turned out to be a *different*, unrelated problem — see below).
+
+**Colour-collision discovery: red/orange pieces vs. red backing.** After the P25 reshoot
+still showed the same broken signature, the user noticed piece A5 "is almost the identical
+colour of the backing." Root-caused precisely: sampling the raw red-channel histogram at the
+same physical location in both scan passes gave nearly identical distributions (mean
+~150-160, only 11-16% of the local window below the R=110 threshold) in BOTH orientations —
+ruling out a directional-shadow explanation and confirming the piece's own colour, not scan
+geometry, was the cause. A4 (extracted at just 34% of healthy area) and total non-detections
+of A5 (both passes) and, in P23, of E5/F5, all shared this signature. **Fix: scan these
+pieces on saturated GREEN backing** — complementary to red/orange, so the piece reads
+reliably dark in the green channel regardless of exact shade. Implemented as a `channel`
+parameter threaded through `Scan/scan.py` (`red_channel`, `detect_fiducials`,
+`extract_pieces`) and `Scan/pipeline.py` (`process_sheet`, `--channel {red,green,blue}` CLI
+flag), defaulting to red so no existing sheet's processing changes.
+
+**Systematic audit, not just the 4 obvious pieces.** Cross-referencing extracted area against
+each sheet's own median, combined with warm (positive) LAB `a`, found **9 more** already-
+scanned pieces with the same signature (P23-F4/D5/E4/F3, P24-F2/D3, P26-A2/B1, P25-C5) —
+notably P23-F4, the very first "funny shape" piece the user had manually corrected days
+earlier, which turned out to still have a badly malformed contour (34% area, corner_dev
+0.55) despite the topology label being fixed. All 13 (4 + 9) plus 6 more pieces the user
+found by eye (P23-D4/E5/F5, P24-E1/F1/E2, P26-A1/B2) — 19 total — were gathered onto one
+green-backed sheet (P28) and rescanned; P23-F3 and P25-C5 followed on a second small addition
+to the same sheet. **Two pieces (P23-E5, P23-F5) turned out to be pure recoveries** — they
+never produced any contour at all in the original red scan, not merely a distorted one.
+`pipeline.process_sheet` now auto-flags this pattern going forward
+(`config.AREA_COLLISION_FRAC`, `config.WARM_A_WARN`) — no more manual audits needed.
+**Whole-database re-audit after all fixes: clean** — 0 collision candidates and 0
+undersized-for-any-reason pieces across all 803 pieces / 27 sheets outside the fixed region.
+
+**Identifying which green-scan piece was which required real diagnostic work, not just
+grid position.** The pipeline's own grid inference gives *local* coordinates on whatever
+sheet a piece is rescanned on — it has no notion of the piece's true identity. Cross-checked
+candidates against their (often-corrupted) original DB record by colour (LAB distance) and
+topology (cyclic-class match, since orientation is arbitrary between scans), which
+recovered most of the 19-piece batch confidently, but two pieces resolved by topology alone
+contradicted colour-based guesses (a re-derived F4 assignment, forced by the user's earlier
+manual topology correction, is a different piece than the colour-nearest match) — and 6 had
+no prior record at all. Ultimately the user's explicit, confirmed physical layout (which
+quadrant/reading-order each source sheet's pieces occupied) was the authoritative source;
+statistical matching served mainly to validate it and catch two mapping errors in an
+intermediate guess (B1 and C4 were mis-assigned by colour proximity alone).
+
+**A real data-integrity bug, caught and fixed.** Storing a partial-sheet update by
+reconstructing "keep everything except this round's replacements" from a **fresh reprocess
+of the original scan** silently re-generated (and re-inserted) the *original, corrupted*
+versions of every earlier fix that wasn't part of the current round — including making one
+already-recovered piece (P25-A5) disappear again entirely. Caught by spot-checking the DB
+after the write rather than trusting the row counts. Fixed by regenerating the correct
+records from their green-scan sources and adding `Scan/db.py`'s `replace_piece(conn,
+page_label, record)` — swaps in exactly one piece by label, cleaning up its old
+`edges`/`piece_colors` rows first (no `ON DELETE CASCADE`) — as the safe path for any future
+single-piece correction, instead of reconstructing a whole sheet's contents from scratch.
 
 ### Session 9 — Spitzer reference obtained + registered; NCC fails on featureless teal; zone strategy (2026-09-02)
 

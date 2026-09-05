@@ -42,7 +42,10 @@ FIT_WIN = 175.0         # px half-window around the feature centre to compare ov
 FIT_N = 140             # sample count across that window
 FIT_SHIFT = 16.0        # px along-edge shift search half-width
 FIT_SHIFT_N = 13
-FIT_SCALE = (0.90, 0.95, 1.0, 1.05, 1.10)
+FIT_SCALE = (1.0,)      # locked: measured dual-pass repeatability is ~0.6% of
+                        # piece size, two orders below the old +-10% search --
+                        # that search let canonical-shape coincidences rescale
+                        # themselves into a false fit a real cut can't fake
 FIT_MIN_OVERLAP = 70    # finite-sample count required to score a fit
 
 

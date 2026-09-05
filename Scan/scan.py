@@ -20,14 +20,21 @@ def load_scan(path) -> np.ndarray:
     return np.array(Image.open(str(path)).convert("RGB"))
 
 
-def red_channel(image: np.ndarray) -> np.ndarray:
-    """The red channel is what everything downstream thresholds on.
+def red_channel(image: np.ndarray, channel: int = 0) -> np.ndarray:
+    """The channel everything downstream thresholds on. Red (0, default) is
+    what every teal/dark sheet uses -- magenta card reads ~167 here while both
+    teal and black pieces read 0-57, a 116-level gap.
 
-    Magenta card reads ~167 here while both teal and black pieces read 0-57,
-    a 116-level gap. Blue backing was tested and gives only 95 levels, with teal
-    pieces sitting uncomfortably close to it.
+    `channel=1` (green) is for pieces whose own colour collides with the red
+    backing -- the puzzle's red/orange core pieces measure R~150-160 against a
+    magenta/red backing's R~170-193, nowhere near the usual 100+ level margin,
+    and it doesn't matter which orientation they're scanned in (the piece is
+    simply the wrong colour for this backing, not a shadow effect). Red and
+    green are complementary, so scanning those pieces on a saturated GREEN
+    backing restores the gap: red/orange pieces read low green, the backing
+    reads high green.
     """
-    return image[:, :, 0]
+    return image[:, :, channel]
 
 
 def backing_level(red: np.ndarray) -> int:
@@ -88,7 +95,8 @@ class Fiducials:
         return self.corners is not None
 
 
-def detect_fiducials(image: np.ndarray, red_level: int | None = None) -> Fiducials:
+def detect_fiducials(image: np.ndarray, red_level: int | None = None,
+                     channel: int = 0) -> Fiducials:
     """Find the near-black registration dots on the red backing.
 
     Worked on the RED channel, not luminance greyscale: the card's greyscale is
@@ -108,7 +116,7 @@ def detect_fiducials(image: np.ndarray, red_level: int | None = None) -> Fiducia
     Centroids are intensity-weighted, localising a filled disc to well under a
     pixel.
     """
-    red = red_channel(image)
+    red = red_channel(image, channel)
     if red_level is None:
         red_level = threshold_level(red)
 
@@ -259,15 +267,18 @@ def colour_descriptor(lab: np.ndarray, hsv: np.ndarray, blob: np.ndarray) -> dic
     return out
 
 
-def extract_pieces(image: np.ndarray, level: int | None = None):
+def extract_pieces(image: np.ndarray, level: int | None = None, channel: int = 0):
     """Find every piece in a scan.
 
     Returns (pieces, diagnostics). Diagnostics reports suspected merges and
     debris rather than silently dropping them -- two touching pieces produce a
     single plausible-looking contour, which is the one failure mode that can
     poison the database without being obvious.
+
+    `channel` selects red (0, default), green (1) or blue (2) -- see
+    `red_channel` for when green is needed (red/orange pieces on red backing).
     """
-    red = red_channel(image)
+    red = red_channel(image, channel)
     if level is None:
         level = threshold_level(red)
     mask = piece_mask(red, level)

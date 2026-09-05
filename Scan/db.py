@@ -171,6 +171,42 @@ def insert_sheet(conn, page_label, scan_a, scan_b, diag, residual, fiducials_fou
     return cur.lastrowid
 
 
+def replace_piece(conn, page_label, record):
+    """Insert or cleanly replace ONE piece by label, leaving every other piece
+    on the sheet untouched.
+
+    Unlike `INSERT OR REPLACE` on `pieces` directly, this also removes the old
+    piece's `edges`/`edge_matches`/`piece_colors` rows first -- those reference
+    the old piece_id by foreign key (no ON DELETE CASCADE), so a bare replace
+    would either violate the FK (enforcement on) or, worse, leave orphaned
+    child rows behind. Use this for partial-sheet fixes (one collision piece
+    rescanned on a different backing) instead of re-deriving "keep" from a
+    fresh reprocess of the original scan -- that regenerates every piece from
+    scratch, silently reverting any other piece already fixed by an earlier
+    partial update.
+    """
+    sheet_row = conn.execute("SELECT sheet_id FROM sheets WHERE page_label=?",
+                             (page_label,)).fetchone()
+    if not sheet_row:
+        raise ValueError(f"no sheet '{page_label}' -- insert_sheet first")
+    sheet_id = sheet_row[0]
+
+    old = conn.execute("SELECT piece_id FROM pieces WHERE piece_label=?",
+                       (record["piece_label"],)).fetchone()
+    if old:
+        pid = old[0]
+        conn.execute("DELETE FROM edge_matches WHERE edge_id IN "
+                     "(SELECT edge_id FROM edges WHERE piece_id=?) "
+                     "OR mate_edge_id IN (SELECT edge_id FROM edges WHERE piece_id=?)",
+                     (pid, pid))
+        conn.execute("DELETE FROM edges WHERE piece_id=?", (pid,))
+        conn.execute("DELETE FROM piece_colors WHERE piece_id=?", (pid,))
+        conn.execute("DELETE FROM pieces WHERE piece_id=?", (pid,))
+    piece_id = insert_piece(conn, sheet_id, record)
+    conn.commit()
+    return piece_id
+
+
 def insert_piece(conn, sheet_id, record):
     cur = conn.execute(
         """INSERT OR REPLACE INTO pieces

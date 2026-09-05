@@ -74,6 +74,14 @@ COLOUR_TEAL_AB_MAX = -6.0     # or (a<0 and a - b below this) => teal (green-dom
                              # e.g. the red centre -- out of the teal bucket)
 COLOUR_DARK_L_MAX  = 55.0     # not teal and mean L below this => dark background
 
+# A piece whose own colour is close to the red/magenta backing (the puzzle's
+# red/orange core) only clears threshold via its shadow rim, in BOTH scan
+# orientations -- giving an undersized, distorted contour, not a per-pass
+# fluke. Flagged from the P25 A4/A5/B4/B5 case: healthy area is 186k-242k px,
+# those four ran 34-88% of the sheet median with mean a-128 of +15 to +42.
+AREA_COLLISION_FRAC = 0.80    # area below this * sheet median => undersized
+WARM_A_WARN = 15.0            # combined with mean a-128 above this => warm cast
+
 # ---------------------------------------------------------------- edge classification
 # Deviation of an edge from its corner-to-corner chord, as a fraction of chord length.
 BORDER_MAX_DEVIATION = 0.04   # flatter than this => BORDER
