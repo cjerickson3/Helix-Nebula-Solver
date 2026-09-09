@@ -400,6 +400,54 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ## CURRENT STATUS — read this first
 
+**2026-09-09 (Session 11): center-block global grid confirmed; minimum autonomous-placement
+patch size measured at ~3-4 piece-pitches; naive per-piece reference placement attempted and
+FAILED validation — do not reuse that approach without the fix noted below.**
+
+- **P23-P26 global grid, user-confirmed:** the four quadrant sheets stitch as
+  `P23: (col, row)`, `P24: (col, row+5)`, `P25: (col+6, row)`, `P26: (col+6, row+5)` — i.e.
+  P23 is top-left or the ~13-col x 12-row center-block grid, P25 top-right (col offset +6,
+  since P23/P24 are 6 columns wide), P24 bottom-left (row offset +5, since P23/P25 are 5 rows
+  tall), P26 bottom-right (both offsets). This is sufficient to treat the whole ~130pc block
+  as one already-solved connected region (adjacency was preserved at scan time; this just
+  gives it one shared coordinate system) without needing pixel-level image work. Column
+  counts are asymmetric by design (P25 spans 7 cols, P26 only 6) because the block's outline
+  is irregular (see the photo — corners are cut off, there's a gap, a few stray unattached
+  pieces near the border) not a clean rectangle; this is not an error.
+- **`Scan/block_register.py` — Session 10's registration rebuilt as a real module** (it only
+  existed as a lost scratchpad script). `register_block(image_path)` returns the
+  SIFT+RANSAC transform plus a ZNCC lock-quality check (fit score vs. score at ±1 and ±3
+  piece-pitches, so a caller can judge a sharp single-lobe lock vs. a false one like T04's).
+  Reproduced on `Assembled-Nebula.png`: 87/258 inliers, ZNCC fit 0.495, dropping to 0.27-0.32
+  at one pitch and ~0 at three pitches — same sharp-single-lobe signature as Session 10's
+  0.751 (the absolute number differs, likely a preprocessing difference in the original
+  scratchpad run; the qualitative lock is what matters and it reproduces cleanly).
+- **NEW: minimum connected-region size for autonomous placement, measured.** Swept
+  registration over a grid of crops of `Assembled-Nebula.png` at decreasing tile size.
+  Quadrant-size regions (~30-40pc, matching P23-P26 exactly) all lock cleanly (fit 0.49-0.62)
+  and independently agree on scale (~0.348) and rotation (~90°) — good cross-validation.
+  Locking holds down to **~3x3-4x4 piece-pitches (~10-12pc)**; at ~2-3 pitches (~6-8pc) SIFT
+  can no longer find enough keypoints to fit a model at all. This is the concrete number for
+  anchor-and-grow: a newly-hand-assembled cluster needs to be roughly this size or larger
+  before the software can place it on its own.
+- **Naive per-piece reference placement — attempted, FAILED validation, root cause
+  understood.** Tried: map each piece's global grid position (above) into a uniform pitch
+  grid spanning the block photo's occupied bounding box, then through the whole-block
+  transform into the reference frame, then check the predicted spot's reference colour
+  against the piece's own recorded mean LAB. Result: median colour(a,b) error was no better
+  than a random-frame-location control (two bbox segmentation methods tried — colour-distance
+  -from-corner and local-texture-energy — gave median errors of 16.5-24.9 vs. a 17.4-22.5
+  random baseline). **Root cause: `Assembled-Nebula.png` is a handheld/tripod table photo,
+  not an orthographic scan** — perspective and lighting variation across ~1m of table break
+  the assumption that equal piece-index steps are equal pixel steps. Clearest symptom: the
+  true red/orange core pieces (identifiable by high-a/b LAB — the same set Session 10's
+  colour-collision fix flagged) landed 40-98 LAB units from anything red in the reference,
+  i.e. off by several grid cells, not a small offset. **Do not reuse the uniform-pitch/bbox
+  approach.** The fix, not yet built: seed a local NCC/shortlist-style search (small window,
+  informed by the proven ~3-4 pitch minimum patch size) around each naive-predicted position,
+  then robustly re-fit a homography from the refined correspondences — this reuses
+  `Scan/shortlist.py`'s machinery rather than a new linear-grid guess.
+
 **2026-09-04 (Session 10): whole-block SIFT+ZNCC registration WORKS (0.751, a real lock) —
 the red/orange core zone prediction is confirmed, not just theorized. Center-block archival
 scan (P23-P26, ~130 pieces) complete, including discovery and fix of a real scanning-method
@@ -687,12 +735,25 @@ the local asterism to the registered reference star field. Worth building as a p
 the T04 teal test gave a false match (dense-field overfit) but dark pieces are a better case.
 
 **4c. Autonomous NCC on bright filament-ring + red-core pieces — CONFIRMED working
-(Session 10).** Whole-block SIFT+ZNCC on the assembled center-block photo scored 0.751, a
-sharp single-lobe peak — well above the ≳0.5 bar. Next step: now that ~130 of that block's
-pieces are individually scanned (P23-P26) with real adjacency, test whether the *individual
-piece* geometry (not just the whole-block photo) can be placed against the reference the
-same way, growing outward from this anchored region into the surrounding bright-ring/
-transition pieces per the anchor-and-grow strategy.
+(Session 10), individual-piece precision NOT YET working (Session 11).** Whole-block
+SIFT+ZNCC on the assembled center-block photo locks cleanly (Session 10: 0.751; reproduced
+Session 11 via the new `Scan/block_register.py`: 0.495, same sharp-single-lobe signature).
+Session 11 measured the minimum region size for this to work at all: **~3x3-4x4 piece-
+pitches (~10-12pc)**; below ~2-3 pitches SIFT can't find enough keypoints. Session 11 also
+confirmed the global grid stitching P23=col/row, P24=col/row+5, P25=col+6/row, P26=col+6/
+row+5 (user-provided) — sufficient to treat the whole ~130pc block as one coordinate system.
+**But a naive per-piece placement attempt (map grid position through a uniform pitch grid
+over the block photo's bbox, then through the whole-block transform into the reference)
+FAILED validation** — predicted-vs-actual reference colour was no better than random,
+because `Assembled-Nebula.png` is a handheld photo, not an orthographic scan, so uniform
+pitch doesn't hold across it. See CURRENT STATUS for the full writeup and the proposed fix
+(local NCC/shortlist-style refinement seeded by the naive guess, then a robust re-fit) —
+not yet built. **Superseded by the physical plan agreed at the end of Session 11** (see
+Session History): rather than computing a per-piece placement from an uncalibrated handheld
+photo, the next photo will carry its own fiducial markers so a homography corrects it to
+true physical mm first — this is expected to fix the root cause directly rather than needing
+a local-NCC refinement pass. Re-evaluate whether that refinement is still needed once the
+fiducial-corrected photo exists.
 
 **4d. Featureless teal interior + transition (~150 pc) — hand zone.** Proven CV-unsolvable
 (T03, T04). Shortlist tool assists; no more solver effort here.
@@ -713,6 +774,115 @@ pre-filtering strategy.
 ---
 
 ## Session History
+
+### Session 11 — Global grid stitching confirmed; minimum patch size measured; naive per-piece placement tried and failed (2026-09-09)
+
+Picked up where Session 10 left off: DB re-verified unchanged and clean (803 pieces, 27
+sheets, P23-P26 present with the documented counts 28/40/33/29 — nothing to redo there).
+
+**`Scan/block_register.py` — Session 10's registration rebuilt as a committed module.** The
+original run was a scratchpad script that no longer exists. Reproduced its result on
+`Assembled-Nebula.png`: 87/258 SIFT inliers, ZNCC fit 0.495 dropping to 0.27-0.32 at one
+piece-pitch and ~0 at three pitches — the same sharp single-lobe signature as Session 10's
+0.751 (absolute value differs, likely a preprocessing difference in the lost script; the
+qualitative lock, which is what actually matters, reproduces).
+
+**Minimum connected-region size for autonomous placement — measured for the first time.**
+Swept SIFT+ZNCC registration over a grid of crops of `Assembled-Nebula.png` at decreasing
+tile size (halves, thirds, quarters, fifths). Quadrant-size crops (~30-40pc, matching
+P23-P26 exactly) all lock cleanly and — a good independent cross-check — agree with each
+other on scale (~0.348) and rotation (~90°) despite being registered completely separately.
+Locking holds down to **roughly 3x3-4x4 piece-pitches (~10-12pc)**; below that, at ~2-3
+pitches (~6-8pc), SIFT can no longer find enough keypoints to fit any model. This is now a
+concrete design number for anchor-and-grow rather than a hunch.
+
+**Global grid for the P23-P26 center block — obtained from the user.** Each quadrant sheet
+has its own local grid origin and the sheets don't have matching column/row counts (P25
+spans 7 columns, P26 only 6 — the block's outline is irregular, not a rectangle, matching
+the photo: cut corners, one gap, a few stray unattached pieces near the border). Asked the
+user directly rather than guessing or trying to derive it automatically by edge-matching;
+they gave the exact adjacency: P23 top-left, column F of P23 meets column A of P25, row 5 of
+P23 meets row 1 of P24, column F of P24 meets column A of P26, row 5 of P25 meets row 1 of
+P26. Translated to the DB's 0-indexed `grid_col`/`grid_row`: `P23 -> (col, row)`,
+`P24 -> (col, row+5)`, `P25 -> (col+6, row)`, `P26 -> (col+6, row+5)`. This is sufficient to
+treat the whole ~130-piece block as one coordinate system — no pixel-level image work
+needed for this part, since true adjacency was already preserved at scan time.
+
+**Attempted: use that global grid + the whole-block transform to place individual pieces in
+the reference frame. Failed validation.** Method: bounding-box the block photo's piece-
+occupied region (tried two ways — colour-distance from the sampled backing colour, and
+local Laplacian texture energy, since the colour method was fooled by lighting gradient
+across the photographed table), divide it into a uniform 13x12 pitch grid, put each piece
+at its `(global_col+0.5, global_row+0.5)` cell center, then map through the whole-block
+SIFT transform into the reference frame and compare the reference's colour there against
+the piece's own recorded mean LAB (from the DB, no new CV needed). Validation: median
+colour(a,b) error 16.5-24.9 depending on the bbox method, against a random-frame-location
+control of 17.4-22.5 — **no real signal, worse than or barely distinguishable from chance.**
+Root-caused precisely, not just abandoned: the clearest failures were the true red/orange
+core pieces (identified independently by their high-a/b LAB — the same set Session 10's
+colour-collision fix had already flagged), which landed 40-98 LAB units from anything red
+in the reference — several grid cells off, not a small calibration error. Conclusion:
+`Assembled-Nebula.png` is a handheld/tripod table photo, not an orthographic scan, so the
+core assumption (equal piece-index steps = equal pixel steps across the whole photo) does
+not hold — perspective and lighting vary too much across roughly a meter of table. **Do not
+reuse the uniform-pitch/bbox approach as-is.** Proposed fix for next time: seed a local
+NCC/shortlist-style search (small window, sized using the ~3-4 pitch minimum patch size
+just measured) around each naive-predicted position, then robustly re-fit a homography from
+the refined correspondences, reusing `Scan/shortlist.py`'s de-weave + NCC machinery instead
+of a new linear-grid guess. Not yet built — open question for next session whether it's
+worth building, since the block's internal layout is already fully known from adjacency and
+only the *overall* anchor position (which already works via the whole-block registration)
+may be all that's actually load-bearing for solving purposes.
+
+Scratch scripts used this session (multi-scale registration sweep, naive per-piece placement
++ validation) were exploratory and deleted, same as prior sessions' scratch scripts — their
+findings are captured above and in CURRENT STATUS / Pending Task 4c.
+
+**Follow-up planning discussion (same session): the physical plan for next time, refined
+through several rounds.** Talked through what "grow outward" should concretely mean (use
+the block's known anchor position to restrict `Scan/shortlist.py`'s search zone to just
+outside the block's boundary, rather than shortlisting against the whole nebula) and how to
+fix the root cause of the failed per-piece placement (no scale/perspective ground truth in
+a handheld photo). The plan that came out of it, **superseding the "reassemble into 4
+quadrants and photograph each" idea earlier in this same session**:
+
+- **Reassemble P23-P26 (and "most of" the rest of the Eye) into ONE combined arrangement and
+  photograph it as a single shot with fiducial markers**, not four separate quadrant photos.
+  Better on two counts: a single larger connected region gives at least as strong a SIFT
+  lock as any one quadrant (this session's own sweep showed this), and critically it
+  **eliminates the quadrant-stitching problem entirely** — one photo's piece positions are
+  ground truth on their own, with no column/row-offset formula (like the P23-P26 one above)
+  needed. Fiducial markers (a board or sheet with markers at precisely known mm positions,
+  large enough to bracket the *entire* reassembled extent, not just one quadrant's worth of
+  space) let a homography correct the photo to true physical mm before any registration —
+  this is the fix for the failed naive-placement attempt above, whose root cause was exactly
+  the lack of any scale/perspective ground truth in `Assembled-Nebula.png`. If a few pieces
+  don't fit in frame, that's fine — track which ones are excluded so the homography isn't
+  assumed to cover them.
+- **The red/orange core sub-cluster will be photographed twice**: once assembled on its own
+  against a GREEN background, and once in place as part of the larger reassembled Eye block.
+  The isolated green-backed shot sidesteps the same red/red colour-collision problem
+  Session 10 found during flatbed scanning (a red/orange piece against a red/magenta
+  backing is hard to segment) — it applies here too, to segmenting that sub-region out of a
+  photo for analysis, even though SIFT feature matching on the full-block photo is less
+  sensitive to it than a hard colour threshold would be.
+- **T03 will be assembled onto a fiducial page and scanned** (same method as other sheets),
+  and the user will separately measure and report **T03's position relative to the Nebula
+  Eye block** — they already know roughly where it goes (a couple of rows of unplaced pieces
+  between T03 and the Eye block's lower-right corner) and will pin this down with an actual
+  measurement plus which sides face each other, the same kind of adjacency fact that made
+  the P23-P26 stitching possible without any image work.
+- **The Eye block will also be physically positioned in its true spot in the overall puzzle
+  and counted in from the completed border** — row/column count from a known border corner
+  to a specific reference piece on the block, plus the mm measurement as a secondary check
+  (piece size varies ~23-30%, so counting actual piece positions is more trustworthy than
+  converting mm to a piece count). This is an independent, human-measured ground truth for
+  the block's absolute puzzle position, separate from and a real cross-check against
+  whatever the reference-image registration computes — if the two disagree, that is a
+  signal to trust the physical count and go looking for the bug in the registration math.
+
+None of this is done yet — it's the plan for the next session, recorded here so it isn't
+lost. `Scan/block_register.py` is ready to use once the fiducial-corrected photos exist.
 
 ### Session 10 — Whole-block registration confirmed; center-block scan; colour-collision found and fixed (2026-09-04)
 
