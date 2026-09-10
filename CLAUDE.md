@@ -407,6 +407,27 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ## CURRENT STATUS — read this first
 
+**2026-09-10 (Session 13): PROJECT ON HOLD (user "may be back — I don't give up easy").**
+The Session 12 connector-piece shortlists were physically tested against the real gap —
+**none of the candidates fit**, for either connector position (P26-D5 side or T03-B2 side).
+This is the expected failure mode, now confirmed end-to-end: LAB colour distance across
+130+ near-identical teal opposing-tab pieces does not carry enough signal to pick the true
+piece, and shape doesn't discriminate on this puzzle either (established Sessions 7-9). The
+registration pipeline itself is sound (Session 12's red-core direct-CV validation stands) —
+the wall is per-piece identification in the low-signal teal zone, which was already the
+standing conclusion. Nothing is broken; the DB, the `Scan/` pipeline, and all findings
+below remain valid for whenever it resumes. If picking this back up: the honest next lever
+is NOT more colour/shape tuning — it's either (a) accept the hand-solve-zone conclusion and
+use the shortlist tool purely as a human aid, or (b) the edge colour-image *continuity*
+idea from Session 8 (match nebula texture/stars across the seam), which was started
+(`solve15.py`) and capped at ~4/15 but never got the pass-A/B colour-strip averaging fix.
+
+- **Also verified Session 13:** the stored piece contours sit *in* the edge shadow, not on
+  a shadow-free boundary — inflated outward ~10–13 px / ~0.5 mm per edge. Fully written up
+  in the "Scanning Pipeline — Measured Constants / Key findings" section. Nothing to fix
+  (the dual pass and `match.py`'s self-calibration already handle what can be handled), but
+  it's a real contributor to shape-matching's weakness here.
+
 **2026-09-09 (Session 12, same day as Session 11): the fiducial-scan plan from Session 11
 WORKED — the strongest registration this project has produced, plus a real, direct-CV
 validation with no ruler measurement involved. T03 anchored to the block via a bright-star
@@ -508,9 +529,9 @@ landmark. A concrete connector-piece shortlist handed off for physical testing.*
     opposing-tab teal pieces, not necessarily a confident ID; check by hand).
   - Near T03-B2: **T02-C5, T02-B6, T02-E4, T02-C3, T02-D5** (weaker signal — this position
     estimate is rougher than the P26-D5 one).
-  User will physically test these against the real gap. **Outcome not yet known — record
-  the result next session** (a real end-to-end validation of the whole registration +
-  colour-shortlist pipeline if either candidate actually fits).
+  User physically tested these against the real gap (Session 13, 2026-09-10):
+  **none of the candidates fit, on either side.** See the Session 13 note at the top of
+  CURRENT STATUS — project on hold.
 
 **2026-09-09 (Session 11): center-block global grid confirmed; minimum autonomous-placement
 patch size measured at ~3-4 piece-pitches; naive per-piece reference placement attempted and
@@ -690,6 +711,17 @@ across 36 pieces.
   a 40 px ramp instead of 20. Stay at 600.
 - **The shadow is partly directional** (deficit 25 levels on down-facing edges, 43 on
   up-facing). The 180° second pass cancels it: averaging collapses the 18-level spread to ~3.5.
+- **The stored contour SITS IN the shadow — it is not a shadow-free outline** (verified
+  Session 13, red-channel profile along the outward normal on T02-D5). The contour is just
+  the fixed-threshold crossing (R≈110), and that level sits partway up the shadow ramp:
+  piece body R≈85, contour R≈108, and the backing does not recover to its true R≈193 even
+  30 px out. So every contour is inflated *outward* into the shadow band by ~10–13 px per
+  edge (~0.5 mm) — a tab reads ~13 px too tall, its mating blank ~13 px too shallow (the
+  ~27 px TAB−BLANK gap `Scan/match.py` self-calibrates out each run). The dual pass makes
+  this inflation roughly uniform around the piece rather than lopsided; it does not remove
+  it. Net boundary repeatability is still 172 µm mean / 221 µm worst — stable, just not
+  zero-offset. One more small contributor to why shape matching underperforms here: the
+  compared outline is piece-plus-shadow, not the piece.
 - **Contour comparison MUST use rigid ICP**, not centroid-align-then-rotate. The arc-length
   centroid of a tabbed contour is not its area centroid, and the leftover translation
   masquerades as uniform dilation. Proper ICP took the residual from 17 px to 4 px.
@@ -865,11 +897,14 @@ directly: a proper scan has no perspective/lighting distortion to correct for, s
 local-NCC refinement pass was never needed. See CURRENT STATUS / Session 12 for the
 red-core direct-CV validation that confirms the fix worked.
 
-**4e. Connector-piece candidates for the T03-to-block gap — shortlisted, awaiting physical
-test (Session 12).** Two real boundary pieces identified: P26-D5 (block side) and T03-B2
-(T03 side). Colour + topology (opposing-tab class) shortlist delivered — see CURRENT STATUS
-for the two candidate lists. **User is testing these physically; record the outcome next
-session** regardless of which way it goes (a real end-to-end validation either way).
+**4e. Connector-piece candidates for the T03-to-block gap — TESTED, FAILED (Session 13,
+2026-09-10).** Two real boundary pieces identified: P26-D5 (block side) and T03-B2 (T03
+side). Colour + topology (opposing-tab class) shortlists delivered (see CURRENT STATUS for
+the two candidate lists) and physically tested against the real gap: **none of the
+candidates fit, on either side.** Colour distance alone doesn't discriminate among the
+puzzle's near-identical teal opposing-tab pieces, and shape doesn't either (Sessions 7-9).
+Project put on indefinite hold after this — see the Session 13 note at the top of CURRENT
+STATUS.
 
 **4d. Featureless teal interior + transition (~150 pc) — hand zone.** Proven CV-unsolvable
 (T03, T04). Shortlist tool assists; no more solver effort here.
