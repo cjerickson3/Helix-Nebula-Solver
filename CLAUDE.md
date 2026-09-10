@@ -136,6 +136,13 @@ as a pre-filter to reduce the candidate pool before any expensive CV matching ru
 
 ### Generalized SQLite Schema (v2 — designed for multi-puzzle use)
 
+**This entire schema is ASPIRATIONAL and was never implemented.** The real, in-use schema is
+in `Scan/db.py` — deliberately leaner (Session 7 note below), and confirmed (Session 12) to
+have no `edges.direction` column at all: `edges.edge_index` is arbitrary contour order
+(0-3), never compass direction, for any piece including the grid-adjacency-preserving sheets
+(P23-P26, T03). Query `Scan/db.py`'s actual `CREATE TABLE` statements, not this section, for
+anything that needs to match the real database.
+
 The schema is designed to be **puzzle-agnostic** — any puzzle can be loaded as a `puzzle` record,
 and pieces/edges/descriptors hang off that. Descriptor tracks are optional per-piece; the solver
 uses whatever is available.
@@ -399,6 +406,111 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 
 ## CURRENT STATUS — read this first
+
+**2026-09-09 (Session 12, same day as Session 11): the fiducial-scan plan from Session 11
+WORKED — the strongest registration this project has produced, plus a real, direct-CV
+validation with no ruler measurement involved. T03 anchored to the block via a bright-star
+landmark. A concrete connector-piece shortlist handed off for physical testing.**
+
+- **P29/P30 flatbed scans (not yet in the DB — piece-content only, for registration).**
+  User reassembled "most of" the Eye block (touching/interlocked, true physical layout) and
+  flatbed-scanned it on a fiducial page as ONE combined shot (`p29a/b Upper Left Nebula that
+  fits.png`), per Session 11's plan — superseding the earlier "4 separate quadrant photos"
+  idea entirely. A narrow right-edge strip that didn't fit the same scan pass is a second
+  fiducial sheet, `P30a/b Right Nebula eye.png`. **This is a flatbed scan, not a handheld
+  photo** — it inherits the project's already-proven scan geometry (no perspective, 0.23%
+  anisotropy) instead of needing new correction. These files are NOT run through
+  `Scan.pipeline`/`extract_pieces` — the pieces are touching, so contour extraction would
+  just find one merged blob. They exist purely for `Scan.block_register` registration.
+- **P29 registration: the best lock yet.** 126/289 SIFT inliers, ZNCC fit 0.544, dropping to
+  0.32-0.36 at one pitch and 0.02-0.17 at three pitches — cleaner than the handheld
+  `Assembled-Nebula.png` attempt (87/258 inliers, fit 0.495) and by far the cleanest lock in
+  the project's history. Confirms flatbed scanning was exactly the right fix.
+- **P30 alone is too small to lock confidently** (ZNCC fit 0.214 — a real but weak signal,
+  consistent with it being ~15-20pc, below last session's ~10-12pc minimum). But its
+  independently-fit scale (0.354) and rotation (179.5°) closely match P29's (0.346, 179.5°),
+  and its mapped piece-content lands immediately adjacent to P29's edge (~1 pitch of overlap,
+  within a weak fit's error) — consistent with true physical adjacency, not a contradiction.
+  Mapped piece-content bounding boxes (reference-frame px, via each scan's own registration):
+  P29 x:[1716,3389] y:[793,2942]; P30 x:[1293,1890] y:[1502,2977].
+- **Red-core direct-CV validation — the strongest confirmation this project has produced,
+  and it needed zero ruler measurements.** Thresholded the actual red/orange core region
+  *within the P29 scan itself* in LAB (`140<A<184, B>150` — plain `A>150,B>140` also catches
+  the red/magenta backing card and is wrong, inflates the "core" to 35% of the image; the
+  tighter band excludes the backing), found its centroid, mapped it through P29's own
+  registration transform — and it landed almost exactly on the reference image's own
+  visually brightest point of the core. Pure computer vision, one image in, one transform,
+  dead-on result. This is the anchor to trust going forward.
+- **The physical ruler measurement (a real, human-measured cross-check) had a methodology
+  bug — caught, not repeated.** User measured a border "star, vertical-2-tab" piece at
+  ~346-349mm from the right border edge, 404mm from the left, ~250mm from the top (all in
+  cm, not mm — an early units mixup got sorted out). Converting to reference-frame px landed
+  suspiciously close to P29's own mapped edge — but this combined ONE piece's horizontal
+  measurement with a DIFFERENT piece's vertical measurement (the "star" border piece and the
+  separate P28 red-core "center piece" are not the same piece). **Lesson: always confirm
+  which physical piece a measurement was taken from before combining coordinates from
+  different messages/pieces into one point** — a visual mark-up (circling the piece in a
+  photo) resolved this ambiguity fast and should be the default way to communicate "which
+  piece," not verbal description alone.
+- **T03 anchored via a bright-star landmark relative to the red-core centroid — required one
+  correction, then passed three independent checks.** First guess ("4 right, 4 down from the
+  core") put T03-B2 well inside the core/inner-ring region — but T03-B2's own DB colour
+  (L=117, a=106.5, b=133.1, clearly teal) flatly contradicts that; a piece that close to the
+  core would show at least some warm transition colour. Corrected guess ("4 right, **8**
+  down") passed all three checks: (1) predicted reference colour there is genuinely teal
+  (a≈-26), matching T03-B2; (2) the position falls ~2.6 piece-pitches *beyond* P29's own
+  mapped bottom edge, matching "a couple of rows of pieces between them"; (3) it sits ~82%
+  of the way across the block's horizontal span (toward the right), matching "near the
+  lower-right corner." T03-B2 anchor: reference px ≈ (3094, 3372). **Lesson: an offset
+  described in piece-counts from a landmark is easy to get wrong by a few pieces when
+  estimated by eye — the piece's own already-scanned colour data is a fast, free sanity
+  check before trusting a position derived from it.**
+- **Gap zone for shortlisting, computed:** reference-frame rectangle `1716,2776,4086,3868`
+  (~14x6.6 piece-pitches, generously padded — T03's orientation relative to the reference
+  frame isn't confirmed yet, only its anchor point). A distinctively bright, isolated star
+  sits inside this zone near its bottom-right corner (~ref px (3601,3606)) — a strong visual
+  landmark, plausibly the "lower central bright star" landmark the user described.
+- **Redirected from shortlisting loose scans to a direct connector-piece search.** Rather
+  than scan loose candidate pieces against the gap zone, the user identified (from Dave's
+  more-complete, differently-die-cut photo) the two actual pieces needed to bridge the block
+  to T03, and named the two known real boundary pieces they connect to: **P26-D5** (Eye
+  block side) and **T03-B2** (T03 side).
+- **Confirmed a real schema gap while investigating P26-D5's orientation: `edges.edge_index`
+  is NOT compass direction, for any piece, ever** — it's arbitrary contour-order (0-3),
+  exactly as the schema comment says. The aspirational "v2" schema documented earlier in
+  this file (with an `edges.direction` column) was never implemented; `Scan/db.py`'s actual,
+  leaner schema (Session 7) has no compass field at all, for any sheet including the
+  grid-adjacency-preserving ones (P23-P26, T03). Don't assume otherwise in a future session.
+- **Attempted to derive P26-D5's true orientation empirically anyway, via its real known DB
+  neighbors — inconclusive, and it's a clean re-demonstration of a known limitation.** D5
+  has real neighbors at P26-D4 (north) and P26-C5 (west) already in the DB; south and east
+  are both genuinely open (matches the block's known irregular/gapped boundary — two open
+  sides, not the one originally assumed). Ran `Scan/match.py`'s ICP edge-fit between D5's 4
+  edges and each neighbor's 4 edges to find which index pairs with which. Result: D5's
+  edge_index 0 was the "best fit" against BOTH D4 (9.06 px RMS) and C5 (6.27 px RMS)
+  simultaneously — impossible if only one is the true mate. This is Session 7-9's "shape
+  alone does not discriminate on this puzzle" finding recurring, now demonstrated even when
+  narrowed to just 2-3 real candidate neighbors rather than the whole database. **Do not
+  trust ICP edge-fit alone to resolve orientation, even against a small candidate set.**
+  Fell back to the user's own physical-piece description instead (see below) — this is the
+  practical path per the project's standing conclusion (CV triage + human placement).
+- **Final connector shortlist, colour + topology filtered, handed off for physical
+  testing.** Both connectors need to be the opposing-tab class (`TAB|BLANK|TAB|BLANK`
+  canonical `BLANK|TAB|BLANK|TAB` — tabs on opposite sides, rotatable to "vertical" or
+  "horizontal" as needed; this is a *different* class from D5's own adjacent-tabs
+  `BLANK|BLANK|TAB|TAB`, which is expected — a piece's class and its neighbor's class don't
+  need to match, only the touching edges). Searched the loose/unplaced pool (P01, P02,
+  P04-P22, T02 — every sheet except the known-placed P23-P26/T03; 193 loose teal 2-tab/
+  2-blank pieces, 136 of them true opposing-class) by LAB (a,b) distance to the reference
+  colour at each connector's predicted position:
+  - Near P26-D5: **P01-C3, T02-B3, P01-D2, P01-C6, T02-A4, P01-D4, P01-A4, T02-A3** (top 3
+    suspiciously tight to each other — a known symptom of this puzzle's colour-uniform
+    opposing-tab teal pieces, not necessarily a confident ID; check by hand).
+  - Near T03-B2: **T02-C5, T02-B6, T02-E4, T02-C3, T02-D5** (weaker signal — this position
+    estimate is rougher than the P26-D5 one).
+  User will physically test these against the real gap. **Outcome not yet known — record
+  the result next session** (a real end-to-end validation of the whole registration +
+  colour-shortlist pipeline if either candidate actually fits).
 
 **2026-09-09 (Session 11): center-block global grid confirmed; minimum autonomous-placement
 patch size measured at ~3-4 piece-pitches; naive per-piece reference placement attempted and
@@ -748,12 +860,16 @@ FAILED validation** — predicted-vs-actual reference colour was no better than 
 because `Assembled-Nebula.png` is a handheld photo, not an orthographic scan, so uniform
 pitch doesn't hold across it. See CURRENT STATUS for the full writeup and the proposed fix
 (local NCC/shortlist-style refinement seeded by the naive guess, then a robust re-fit) —
-not yet built. **Superseded by the physical plan agreed at the end of Session 11** (see
-Session History): rather than computing a per-piece placement from an uncalibrated handheld
-photo, the next photo will carry its own fiducial markers so a homography corrects it to
-true physical mm first — this is expected to fix the root cause directly rather than needing
-a local-NCC refinement pass. Re-evaluate whether that refinement is still needed once the
-fiducial-corrected photo exists.
+not yet built. **RESOLVED in Session 12** — the fiducial flatbed scan (P29/P30) fixed this
+directly: a proper scan has no perspective/lighting distortion to correct for, so the
+local-NCC refinement pass was never needed. See CURRENT STATUS / Session 12 for the
+red-core direct-CV validation that confirms the fix worked.
+
+**4e. Connector-piece candidates for the T03-to-block gap — shortlisted, awaiting physical
+test (Session 12).** Two real boundary pieces identified: P26-D5 (block side) and T03-B2
+(T03 side). Colour + topology (opposing-tab class) shortlist delivered — see CURRENT STATUS
+for the two candidate lists. **User is testing these physically; record the outcome next
+session** regardless of which way it goes (a real end-to-end validation either way).
 
 **4d. Featureless teal interior + transition (~150 pc) — hand zone.** Proven CV-unsolvable
 (T03, T04). Shortlist tool assists; no more solver effort here.
@@ -774,6 +890,113 @@ pre-filtering strategy.
 ---
 
 ## Session History
+
+### Session 12 — Fiducial flatbed scan validated the whole approach; T03 anchored; connector shortlist handed off (2026-09-09, same day as Session 11)
+
+Direct continuation of Session 11's conversation, after the user executed the physical plan
+logged at the end of that session's entry.
+
+**The fiducial flatbed scan worked exactly as hoped.** User reassembled most of the Eye
+block (P23-P26's pieces, touching/interlocked, true layout preserved) and flatbed-scanned it
+as one combined shot on a fiducial page (`p29a/b Upper Left Nebula that fits.png`), plus a
+second fiducial sheet for the narrow right-edge strip that didn't fit the same pass
+(`P30a/b Right Nebula eye.png`) — the single-photo approach agreed on at the end of
+Session 11, done as a flatbed scan rather than a handheld photo. `Scan.block_register`
+(unchanged, no new code needed) registered P29 at 126/289 SIFT inliers, ZNCC fit 0.544,
+dropping to 0.32-0.36 at one pitch and 0.02-0.17 at three pitches — the cleanest lock this
+project has produced, well above the handheld `Assembled-Nebula.png` attempt (87/258, 0.495)
+and confirming the flatbed-scan fix was exactly right. P30 alone is too small to lock
+confidently (fit 0.214, ~15-20pc, below the ~10-12pc floor from Session 11), but its
+independently-fit scale/rotation closely match P29's, and its mapped position sits
+immediately adjacent to P29's edge — consistent with the physical adjacency, not evidence of
+a problem. These two scans are NOT run through `Scan.pipeline` (pieces are touching, so
+`extract_pieces` would just find one merged blob) — they exist purely for registration.
+
+**Red-core direct-CV self-check — the strongest, cleanest confirmation yet, and it needed no
+human measurement at all.** Thresholded the actual red/orange core region within the P29
+scan by LAB (`140<A<184, B>150` — a naive `A>150,B>140` also catches the red/magenta backing
+card itself and is wrong), found its centroid, and mapped it through P29's own registration
+transform. It landed almost exactly on the reference image's own visually brightest point.
+Pure pipeline, no manual input, dead-on result — the best validation this project has run.
+
+**The physical ruler measurement had a real methodology bug, caught before it did damage.**
+The user separately measured a border "star" piece (~346-349mm from the right border edge,
+404mm from the left, 250mm from the top — all in cm; an initial mm/cm mixup was sorted out
+quickly once flagged) intending it as an independent cross-check on the block's position.
+Converting that to reference-frame pixels landed suspiciously close to P29's own mapped
+edge — but investigating further revealed this combined ONE piece's horizontal measurement
+with a DIFFERENT piece's (the P28 red-core "center piece") vertical measurement, conflated
+because both were described across separate messages without a clear "same piece or not"
+marker. A photo with the piece circled (`center.png`) resolved the ambiguity in one shot.
+**Takeaway logged for future sessions: ask for or provide a visual mark-up on a piece as
+the default way to identify "which piece," not verbal description across messages** — it
+resolved two separate ambiguities this session (the center piece, and later the T03
+connector pieces) faster than any amount of clarifying text.
+
+**T03 anchored to the block via a bright star, after one correction.** The user's first
+offset guess for a star piece — "4 pieces right, 4 down from the [red-core] center piece,
+call it T03-B2" — was checked against T03-B2's own already-scanned DB colour (L=117, a=106.5,
+b=133.1, unambiguously teal) and failed: a piece only 4 pitches from the core should show at
+least some warm transition colour, not clean teal. Flagging this before building anything on
+it, the user corrected to "4 right, **8** down," which passed three independent checks at
+once: the predicted reference-frame colour there actually is teal; the position falls ~2.6
+piece-pitches beyond P29's own mapped bottom edge (matching "a couple of rows between them"
+from Session 10-11); and it sits ~82% of the way across the block's width toward the right
+side (matching "near the lower-right corner"). T03-B2 anchor: reference px ≈ (3094, 3372).
+A gap-zone rectangle for shortlisting was computed from this: reference px
+`1716,2776,4086,3868` (~14x6.6 pitches, generously padded since T03's orientation relative
+to the reference frame isn't independently confirmed, only its anchor point) — it contains
+one distinctively bright, isolated star near its bottom-right corner, plausibly the "lower
+central bright star" landmark the user separately described and circled on Dave's photo.
+
+**Redirected from a loose-piece shortlist scan to a direct connector-piece search.** Rather
+than scan candidate loose pieces against the gap zone, the user identified, from Dave's
+more-complete (differently die-cut) photo, the two actual pieces bridging the block to T03,
+and named the real boundary pieces they touch: **P26-D5** (block side, real DB piece,
+`BLANK|BLANK|TAB|TAB` canonical — the adjacent-tabs class) and **T03-B2** (T03 side).
+
+**Confirmed a real, previously-undocumented schema limitation while investigating D5's
+orientation: `edges.edge_index` is arbitrary contour order, never compass direction, for
+any piece in the database, including the grid-adjacency-preserving sheets (P23-P26, T03).**
+The aspirational "v2" schema documented earlier in this file includes an `edges.direction`
+column; `Scan/db.py`'s actual, leaner schema (from Session 7) never implemented it. This
+should have been obvious from the schema comment (`-- 0-3 in contour order, NOT compass`)
+but wasn't fully internalised until it blocked real work — worth remembering for any future
+session tempted to query for a piece's "south edge" directly.
+
+**Tried to derive D5's true orientation empirically instead, via its real DB neighbors —
+inconclusive, and a clean re-demonstration of a known limitation.** D5 has real neighbors
+already in the DB at P26-D4 (north) and P26-C5 (west); south and east are both genuinely
+open (two open sides, matching the block's known irregular/gapped boundary — not the single
+open side originally assumed). Ran `Scan/match.py`'s ICP edge-fit between D5's 4 edges and
+each neighbor's 4 edges. Result: D5's edge_index 0 was the "best fit" against BOTH D4
+(9.06 px RMS) and C5 (6.27 px RMS) simultaneously — impossible if only one is the true mate.
+This is Session 7-9's "shape alone does not discriminate on this puzzle" finding recurring,
+now shown even when narrowed to 2-3 real candidate neighbors instead of the whole database.
+Do not trust ICP edge-fit alone for orientation, even against a small candidate set.
+
+**Final shortlist: colour + topology, physical-fit description from the user, human
+verification next.** Fell back to the user's own physical-piece read: both connector pieces
+need to be the opposing-tab class (`BLANK|TAB|BLANK|TAB` canonical — tabs on opposite sides,
+rotatable to "vertical" or "horizontal" as needed; a different class from D5's own
+adjacent-tabs, which is expected — a piece's class and its neighbor's class don't need to
+match, only the touching edges). Searched the loose/unplaced pool (P01, P02, P04-P22, T02 —
+every scanned sheet except the known-placed P23-P26/T03; 193 loose teal 2-tab/2-blank
+pieces, 136 confirmed opposing-class) by LAB (a,b) distance to the reference colour sampled
+at each connector's predicted position:
+- Near P26-D5: P01-C3, T02-B3, P01-D2, P01-C6, T02-A4, P01-D4, P01-A4, T02-A3 (top 3
+  suspiciously tight to each other — a known symptom of this puzzle's colour-uniform
+  opposing-tab teal pieces; treat as "check these first," not a confident ID).
+- Near T03-B2: T02-C5, T02-B6, T02-E4, T02-C3, T02-D5 (weaker signal; this position estimate
+  is rougher than the P26-D5 one).
+
+User will physically test these tomorrow. **Record the outcome next session** — a real
+end-to-end validation of the whole registration + colour-shortlist pipeline either way.
+
+No new permanent code this session — `Scan/block_register.py` (Session 11) was reused
+as-is. Exploratory one-off scripts (LAB threshold tuning, gap-zone geometry, the connector
+colour/topology query) were run inline and not saved, consistent with prior sessions'
+scratch-script convention.
 
 ### Session 11 — Global grid stitching confirmed; minimum patch size measured; naive per-piece placement tried and failed (2026-09-09)
 
