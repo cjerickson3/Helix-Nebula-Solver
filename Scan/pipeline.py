@@ -157,9 +157,10 @@ class SheetResult:
 def process_sheet(page_label, scan_a_path, scan_b_path=None, verbose=True, channel=0):
     """Process one sheet: two passes if available, one if not.
 
-    `channel` is the threshold channel: red (0, default) for the normal
+    `channel` is the extraction mode: red (0, default) for the normal
     teal/dark stock, green (1) for pieces whose own colour collides with red
-    backing (see `Scan.scan.red_channel`).
+    backing, or the string 'saturation' / 'luminance' for a backlit-panel scan
+    (see `Scan.scan.extraction_channel`).
     """
     img_a = scan.load_scan(scan_a_path)
     pieces_a, diag_a = scan.extract_pieces(img_a, channel=channel)
@@ -321,11 +322,14 @@ def main():
     ap.add_argument("scan_b", nargs="?", default=None)
     ap.add_argument("--db", default="resources/helix_pieces.db")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--channel", choices=("red", "green", "blue"), default="red",
-                    help="threshold channel -- green for red/orange pieces on red backing")
+    ap.add_argument("--channel", choices=("red", "green", "blue", "saturation", "luminance"),
+                    default="red",
+                    help="extraction mode -- green for red/orange pieces on red backing; "
+                         "saturation/luminance for a backlit-panel scan (no coloured card)")
     args = ap.parse_args()
 
-    channel = {"red": 0, "green": 1, "blue": 2}[args.channel]
+    channel = {"red": 0, "green": 1, "blue": 2,
+               "saturation": "saturation", "luminance": "luminance"}[args.channel]
     result = process_sheet(args.page_label, args.scan_a, args.scan_b, channel=channel)
     if args.dry_run:
         print(f"\ndry run -- {len(result.records)} records not written")

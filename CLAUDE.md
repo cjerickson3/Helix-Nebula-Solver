@@ -407,6 +407,147 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ## CURRENT STATUS — read this first
 
+**2026-09-20 (Session 14, consult with Claude Fable in Cowork): PROJECT RESUMED with one
+cheap go/no-go experiment — backlit silhouette scans to test whether shape matching is
+noise-limited (recoverable) or die-limited (dead). No code changed this session.**
+
+**Why resume.** The Session 7–13 "shape doesn't discriminate" result has a *noise* signature,
+not a signal-absence signature: true mates fit at 4.5–8 px while coincidental pairs fit at
+2–3 px. If the die were the problem, true mates and strangers would fit equally well; true
+mates fitting *worse* means each side of a real pair carries its own independent extraction
+error. The known error source is the edge shadow: the stored contour sits partway up a
+~20 px ramp, inflated ~0.5 mm/edge, 172 µm repeatability (Session 13). At 42 µm/px that is a
+~4 px halo on features whose true discriminating detail may be only 2–5 px. Remove the ramp
+and true mates should drop *below* the strangers — which is the whole game. A clean edge
+also revives the corner-relative geometry idea (tab position along the edge, chord length),
+which was the right signal but died on corner wobble (Session 7).
+
+**The fix: backlit silhouette on the existing flatbed.** The HP OfficeJet Pro 9125e has no
+transparency unit, but a light panel laid face-down on top of the pieces on the glass does
+the same job. The 9125e is a CIS scanner: narrow acceptance angle → the image is the
+straight-up projection of the piece, no geometric shadow; shallow depth of field → the panel
+surface 2 mm up is blurred, but a blurred uniform white field is still uniform. The scanner
+lamp still fires; its reflection is negligible against the panel's emission. Expected: the
+20 px ramp collapses to a 2–3 px step. Side benefits: every piece is black-on-white
+regardless of its own colour, so the red-channel threshold, red/orange-on-red collision, and
+green-card workaround all go away for the *shape* pass — threshold on luminance (add a
+luminance option next to `scan.py`'s `channel` parameter). Faces stay on the glass: the die
+cuts from the print side, so the face edge is crisp and the back carries burr/fibres, which
+sit 2 mm up and blur into the white. A front-lit pass is still needed for colour
+descriptors; fiducials on a clear transparency (or the acrylic jig outline) register the two.
+
+**Rejected alternatives (don't re-derive):**
+- *Flush embedding (Silly Putty etc.)* — right physics (no cavity → no shadow), wrong
+  material: viscoelastic creep under the piece edge shrinks the outline by a piece-flatness-
+  dependent amount, silicone-oil residue on porous board, 30 pieces × 34 sheets of mess.
+- *More rotation passes (15°)* — only averages the same outward bias from more directions;
+  the contour still lands on a ramp at every angle. 4×90° is the most that's useful for a
+  linear lamp, and a letter sheet won't fit the platen at 15°. Moot once backlit.
+- *Scanning piece backs* — fixes red-channel contrast (which was never the weak link:
+  dust 315 px vs piece 200k px) and leaves the shadow untouched. Also mirrors every outline,
+  and flipping pieces in-cell is 30 handling steps/sheet vs turning the sheet once.
+- *iPhone on a light box* — perspective/lens distortion (fixable) plus parallax from the
+  2 mm thickness: 2 mm × (off-axis ÷ camera distance) ≈ 0.27 mm at 8 cm off-axis, 60 cm
+  away — larger than the shadow being removed. Keep it on the flatbed.
+
+**Hardware for the test: the Gepe Slimlite 5000 (G2001, 5"×4" ≈ 127×102 mm) slide viewer
+already on hand.** Even, daylight-balanced, bright enough. Covers a 3×2 block of 39 mm jig
+cells = 6 pieces/scan. Drape a cloth over panel + open lid to keep ambient light out. If the
+bezel stands proud of the window, fine (field is out of focus anyway) — the cloth handles
+stray light under the edge. Want the background *just* saturated: if edges look soft or
+flare eats the dark region, dim the panel or add a sheet of plain paper as diffuser.
+Order an A4 tracing pad only if the test passes (then one backlit scan per 30-piece sheet).
+
+**The experiment (one afternoon, one number):**
+1. First scan: 6 pieces face-down in the jig on the glass, Gepe on top, cloth over. Take the
+   same red-channel/luminance profile along an edge normal as Session 13 (T02-D5 method).
+   PASS = ~2–3 px step instead of ~20 px ramp. If not, stop and diagnose (flare, gap, ambient).
+2. Batch: the 15 T03 ground-truth pieces + ~30 teal opposing-tab distractors from P01/T02,
+   6 per scan (~8 scans). Identity = jig cell; record the cell layout per scan. No fiducials
+   or front/back pairing needed for the experiment.
+3. Extract contours (luminance threshold, fixed ratio as before), run `Scan.match` on this
+   set, report true-mate rank for the 20 known T03 joins. Baseline to beat: Session 8's
+   feature-anchored matcher, 14/20 top-5 recall, and mutual-best pairs all cross-sheet
+   coincidences.
+   - True mates mostly rank 1 with clear margin → shape is alive; re-capture the teal zone
+     backlit (A4 pad), then the `Scan/solve.py` DFS + grid-consistency solver becomes viable
+     for the featureless-teal hand-solve zone. Also cheap to try then: the shelved
+     residual-from-mean-die-shape idea (mean die from ~800 pieces, subtract, compare residuals).
+   - No improvement → shape is die-limited on this puzzle; close that line for good and go
+     back to CV-triage + human placement (Session 9 conclusion) or the Session 8 colour-
+     continuity strip-averaging fix.
+
+**Model note:** the plan lives in this file and the Project docs, not in any particular
+model. Sonnet in Claude Code is fine for executing steps 1–3; bring the result (the rank
+table + one edge profile) back to a chat session for interpretation if it's ambiguous.
+
+**2026-09-20 (Session 14 continued, same day, in Claude Code): the first real backlit test
+ran — a genuine flatbed scan, iPad-as-light-panel, not the Gepe panel from the plan above.
+Edge sharpness improved exactly as predicted; the actual shape-discrimination acceptance
+test came back weaker than the old baseline, but too confounded by this being a rushed
+single-pass test to call it a verdict either way. `Scan/scan.py` gained the threshold-mode
+code the plan called for.**
+
+- **Physical setup (clarified after some back-and-forth):** pieces face-down on the scanner
+  glass as always (so the sensor still images the front print through the glass, same as
+  every other sheet). An iPad, screen on (blank Notes page, brightness maxed, auto-lock
+  off), rests on top of the piece backs, ~2mm up (propped by the pieces themselves acting as
+  "legs"). Lid partially open, a towel draped over the gap to block stray light. This is a
+  variant of the plan's "light panel on top" idea, improvised with the iPad instead of the
+  Gepe Slimlite — the panel doesn't need to touch the pieces, it just needs to flood the
+  shadow zone beside each piece with near-vertical light instead of the scanner's own raking
+  light. The iPad's own screen content (status bar, Notes toolbar) shows up in the scan too,
+  in the gaps between pieces where the screen is close enough to the glass to stay roughly in
+  focus — harmless, just something to crop out of the piece-extraction region.
+- **Edge sharpness: confirmed, and consistent across the whole sheet, not just one lucky
+  piece.** Measured a 10%→90% saturation-channel transition width (analogous to Session 13's
+  red-channel profile) on all 15 pieces of a T03 rescan: **3-7 px, median 6 px**, at a
+  physical scale matching the documented flatbed piece-size range (so directly comparable,
+  not a units artifact) — versus Session 13's flatbed measurement, which hadn't even fully
+  settled by 30 px out. Checked for position-dependence (user asked whether moving the
+  cluster to the platen's centre would help, worried about the iPad sagging away from
+  support at the edges of the cluster): no measurable fall-off top-to-bottom across this
+  15-piece layout — sagging is not visible in the data at this cluster size, so re-centring
+  is probably not worth the effort, though untested at a much larger cluster size.
+- **`Scan/scan.py`: threshold-mode built.** `extraction_channel(image, mode)` generalises the
+  old red/green/blue channel picker to also accept `'saturation'` (HSV S channel — a
+  colourful piece reads HIGH, the neutral panel reads LOW, `invert=False`) and `'luminance'`
+  (greyscale, `invert=True`, same polarity as the channel modes). `backing_level`,
+  `threshold_level`, `piece_mask` all thread an `invert` flag through; the string modes fall
+  back to Otsu for threshold *selection* (not the fixed backing-ratio the calibrated card
+  modes use — only one backlit scan exists so far, not enough to fix a ratio yet).
+  `extract_pieces`/`detect_fiducials` accept the new modes; `Scan/pipeline.py`'s CLI gained
+  `--channel saturation`/`--channel luminance`. `'saturation'` is validated (below);
+  `'luminance'` is untested — it's meant for dark/black pieces on a backlit panel, and a
+  plain global luminance threshold notably FAILED on a teal test piece earlier this session
+  (latched onto the piece's own internal dark nebula patches instead of the true outline),
+  which is exactly why `'saturation'` was used instead for this sheet. Regression-checked
+  against P01 (red channel, default) — 30/30, 177 µm, identical to the documented history,
+  so the existing production path is untouched.
+- **Extraction on the real T03 rescan: clean, once cropped.** Run on the raw capture
+  directly, `saturation` mode picked up the iPad's own status bar and Notes toolbar as extra
+  "pieces" (18-19 found instead of 15, several with absurd aspect ratios). Cropped to just
+  the piece-cluster region: **15/15, zero merges, zero misses**, grid inferred as 3/5/7 rows
+  — an exact match to the DB's real T03 grid shape. A dedicated backlit page (like every
+  other sheet in this project) wouldn't have this problem; the crop was only needed because
+  this test scanned a live iPad screen along with the pieces.
+- **The actual acceptance test — true-mate rank for the 20 known T03 joins, computed purely
+  within this 15-piece set — came back WORSE than the old flatbed baseline: 6/20 top-5 (vs.
+  Session 8's 14/20), 8/20 top-10, and 6 of the 20 pairs didn't even survive the matcher's
+  pre-filter.** Not treated as a verdict against the shadow hypothesis, because this run had
+  real, identifiable confounds the plan's proper test wouldn't have: (1) only ONE pass — the
+  pipeline's normal 180°-rotated second pass and ICP-averaging shadow-cancellation never
+  ran; (2) Otsu threshold, not a calibrated ratio; (3) corner detection flagged 4 of the 15
+  pieces as shaky (`corner_dev` 0.16-0.25, above the project's own 0.15 warning line) — a
+  much higher rate than this puzzle normally shows. Any one of these could mask a real
+  signal at only 20 joins. **Do not report this 6/20 number as "backlighting didn't help" in
+  a future session without re-running the proper two-pass version first.**
+- **Next session (user's plan): do a real two-pass capture** — same iPad-on-pieces setup,
+  rotate the whole assembly 180° on the glass, scan again, so the pipeline can run its normal
+  averaging — and ideally keep the iPad's own UI chrome out of the piece-extraction frame
+  (a blank full-screen source, or physically masking the icons) so extraction doesn't need a
+  hand-picked crop. That is the fair version of the acceptance test.
+
 **2026-09-10 (Session 13): PROJECT ON HOLD (user "may be back — I don't give up easy").**
 The Session 12 connector-piece shortlists were physically tested against the real gap —
 **none of the candidates fit**, for either connector position (P26-D5 side or T03-B2 side).

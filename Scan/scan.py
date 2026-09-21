@@ -37,31 +37,115 @@ def red_channel(image: np.ndarray, channel: int = 0) -> np.ndarray:
     return image[:, :, channel]
 
 
-def backing_level(red: np.ndarray) -> int:
-    """Estimate the backing level as the histogram mode above BACKING_MIN_LEVEL."""
-    hist = np.histogram(red, bins=256, range=(0, 256))[0]
-    lo = config.BACKING_MIN_LEVEL
-    return int(lo + np.argmax(hist[lo:]))
+def extraction_channel(image: np.ndarray, mode) -> tuple[np.ndarray, bool]:
+    """Return (2D array to threshold, invert) for `mode`.
+
+    `mode` is an int 0/1/2 for the existing red/green/blue-on-coloured-card
+    approach (`red_channel` above) -- the piece reads LOW, the card backing
+    reads HIGH, so thresholding is inverted (`invert=True`, THRESH_BINARY_INV).
+
+    Two string modes support a BACKLIT scan instead of a coloured card --
+    piece face-down on the glass as always, a bright light panel resting on
+    the piece backs (the iPad-as-light-panel technique, Session 14) instead of
+    coloured card underneath. The backing is now a neutral bright panel, not a
+    calibrated colour, so the two modes split by which piece population reads
+    against it:
+
+      'saturation' -- HSV S channel. A colourful (teal) piece reads HIGH, the
+        neutral panel reads LOW (~0) -- the piece is the high side, so
+        invert=False (plain THRESH_BINARY). Validated once (Session 14, the
+        iPad-backlit T03 rescan): clean 15/15 segmentation, zero merges, and
+        the piece/background edge transition measured 3-7 px (median 6) vs.
+        >30 px on the magenta-card scans -- a real, roughly 5-6x sharper edge,
+        consistent across the whole 15-piece cluster (no measured fall-off
+        toward the edges of the layout). NOT validated on black/dark pieces --
+        a near-black pixel's saturation is dominated by sensor noise, so this
+        mode likely cannot tell a dark piece from the panel. Use 'luminance'
+        for those.
+
+      'luminance' -- greyscale. A piece reads LOW (darker than the bright
+        panel), matching the invert=True polarity of the channel modes.
+        Intended for dark/black pieces on a backlit panel; UNTESTED as of
+        Session 14 (only a teal sheet has been backlit-scanned so far -- and a
+        plain global luminance threshold failed outright on that teal piece,
+        latching onto its own internal dark nebula patches instead of the true
+        outline, which is exactly why 'saturation' was used instead. A truly
+        dark/black piece has no such internal bright/dark texture split, so
+        luminance may well work for that class -- but confirm on a real dark
+        sheet before trusting it, the same way 'saturation' was confirmed here.)
+
+    Threshold *selection* for the two string modes is Otsu, not the fixed
+    backing-ratio approach the channel modes use -- unlike the magenta/green
+    card (calibrated across dozens of sheets, Session 6-10), there is only one
+    backlit scan's worth of data so far, not enough to fix a ratio. Otsu is
+    fine here because (so far) each backlit sheet is one piece-colour class
+    against one uniform panel -- a clean two-population histogram, not the
+    dark+teal mix that made Otsu jitter on the red channel. Revisit once more
+    backlit sheets exist.
+    """
+    if isinstance(mode, str):
+        if mode == "saturation":
+            hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+            return hsv[:, :, 1], False
+        if mode == "luminance":
+            return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY), True
+        raise ValueError(f"unknown extraction mode: {mode!r}")
+    return red_channel(image, mode), True
 
 
-def threshold_level(red: np.ndarray) -> int:
-    """Fixed threshold derived from the measured backing, never Otsu.
+def backing_level(channel_img: np.ndarray, invert: bool = True) -> int:
+    """Estimate the backing level as the histogram mode on the backing side.
+
+    `invert=True` (the channel modes): backing is the BRIGHT population --
+    search for the histogram mode above BACKING_MIN_LEVEL, as before.
+    `invert=False` ('saturation' mode): backing is the DIM population instead
+    (a neutral panel reads near-zero saturation) -- search below
+    BACKING_MAX_LEVEL_SAT, since a piece's own bright highlight pixels
+    populate the top of the saturation histogram.
+    """
+    hist = np.histogram(channel_img, bins=256, range=(0, 256))[0]
+    if invert:
+        lo = config.BACKING_MIN_LEVEL
+        return int(lo + np.argmax(hist[lo:]))
+    hi = config.BACKING_MAX_LEVEL_SAT
+    return int(np.argmax(hist[:hi]))
+
+
+def threshold_level(channel_img: np.ndarray, invert: bool = True) -> int | None:
+    """Fixed threshold derived from the measured backing, never Otsu -- for
+    the `invert=True` (channel) modes only.
 
     Otsu recomputes per image, so the proportion of dark to teal pieces on a
     sheet shifts the threshold and moves every boundary: measured 1.68% perimeter
     jitter on rescan versus 0.36% for a fixed level.
+
+    `invert=False` ('saturation' mode) returns None -- there isn't yet enough
+    backlit-scan data to fix a ratio (see `extraction_channel`), so the caller
+    falls back to Otsu for that mode.
     """
-    backing = backing_level(red)
+    if not invert:
+        return None
+    backing = backing_level(channel_img, invert=True)
     if backing < config.BACKING_MIN_LEVEL:
         return config.THRESHOLD_FALLBACK
     return int(round(backing * config.THRESHOLD_RATIO))
 
 
-def piece_mask(red: np.ndarray, level: int | None = None) -> np.ndarray:
-    """Binary mask, 255 where a piece is."""
+def piece_mask(channel_img: np.ndarray, level: int | None = None,
+               invert: bool = True) -> np.ndarray:
+    """Binary mask, 255 where a piece is.
+
+    `level=None` under `invert=False` ('saturation' mode, no fixed ratio yet)
+    falls back to Otsu -- see `threshold_level`.
+    """
     if level is None:
-        level = threshold_level(red)
-    _, mask = cv2.threshold(red, level, 255, cv2.THRESH_BINARY_INV)
+        level = threshold_level(channel_img, invert=invert)
+    if level is None:
+        flag = cv2.THRESH_BINARY if not invert else cv2.THRESH_BINARY_INV
+        _, mask = cv2.threshold(channel_img, 0, 255, flag + cv2.THRESH_OTSU)
+    else:
+        flag = cv2.THRESH_BINARY_INV if invert else cv2.THRESH_BINARY
+        _, mask = cv2.threshold(channel_img, level, 255, flag)
     k = np.ones((config.MORPH_KERNEL, config.MORPH_KERNEL), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
@@ -96,7 +180,7 @@ class Fiducials:
 
 
 def detect_fiducials(image: np.ndarray, red_level: int | None = None,
-                     channel: int = 0) -> Fiducials:
+                     channel=0) -> Fiducials:
     """Find the near-black registration dots on the red backing.
 
     Worked on the RED channel, not luminance greyscale: the card's greyscale is
@@ -115,12 +199,23 @@ def detect_fiducials(image: np.ndarray, red_level: int | None = None,
     more -- so area separates them from pieces cleanly even though both are dark.
     Centroids are intensity-weighted, localising a filled disc to well under a
     pixel.
-    """
-    red = red_channel(image, channel)
-    if red_level is None:
-        red_level = threshold_level(red)
 
-    _, mask = cv2.threshold(red, red_level, 255, cv2.THRESH_BINARY_INV)
+    `channel` accepts the same int/str modes as `extraction_channel` (used by
+    `extract_pieces`). No backlit sheet has carried printed fiducials yet --
+    a 'luminance' backlit page would keep the same dark-dot-on-bright-panel
+    polarity fiducials rely on and should work in principle, but 'saturation'
+    mode cannot: a printed dot and the neutral panel both read near-zero
+    saturation, so this will simply find nothing under that mode. Untested
+    either way as of Session 14.
+    """
+    red, invert = extraction_channel(image, channel)
+    if red_level is None:
+        red_level = threshold_level(red, invert=invert)
+    if red_level is None:
+        return Fiducials(None, None, np.zeros((0, 2)))
+
+    flag = cv2.THRESH_BINARY_INV if invert else cv2.THRESH_BINARY
+    _, mask = cv2.threshold(red, red_level, 255, flag)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                   (config.FIDUCIAL_MORPH, config.FIDUCIAL_MORPH))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
@@ -267,7 +362,7 @@ def colour_descriptor(lab: np.ndarray, hsv: np.ndarray, blob: np.ndarray) -> dic
     return out
 
 
-def extract_pieces(image: np.ndarray, level: int | None = None, channel: int = 0):
+def extract_pieces(image: np.ndarray, level: int | None = None, channel=0):
     """Find every piece in a scan.
 
     Returns (pieces, diagnostics). Diagnostics reports suspected merges and
@@ -275,13 +370,15 @@ def extract_pieces(image: np.ndarray, level: int | None = None, channel: int = 0
     single plausible-looking contour, which is the one failure mode that can
     poison the database without being obvious.
 
-    `channel` selects red (0, default), green (1) or blue (2) -- see
-    `red_channel` for when green is needed (red/orange pieces on red backing).
+    `channel` selects the extraction mode -- an int 0/1/2 for red (default),
+    green or blue on coloured card (see `red_channel`; green is for
+    red/orange pieces on red backing), or the string 'saturation' / 'luminance'
+    for a backlit-panel scan (see `extraction_channel`).
     """
-    red = red_channel(image, channel)
+    chan, invert = extraction_channel(image, channel)
     if level is None:
-        level = threshold_level(red)
-    mask = piece_mask(red, level)
+        level = threshold_level(chan, invert=invert)
+    mask = piece_mask(chan, level, invert=invert)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
@@ -312,7 +409,7 @@ def extract_pieces(image: np.ndarray, level: int | None = None, channel: int = 0
 
     diag = {
         "threshold": level,
-        "backing": backing_level(red),
+        "backing": backing_level(chan, invert=invert),
         "n_pieces": len(pieces),
         "largest_rejected": max(rejected) if rejected else 0.0,
         "merges": [],

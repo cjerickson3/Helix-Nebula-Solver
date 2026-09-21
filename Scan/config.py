@@ -24,6 +24,15 @@ THRESHOLD_FALLBACK = 95               # used only if backing detection fails
 # red channel of magenta card.
 BACKING_MIN_LEVEL = 120
 
+# Backlit-panel scan ('saturation' extraction mode, Scan.scan.extraction_channel):
+# the panel is the LOW-saturation population, so its histogram mode is searched
+# below this level instead of above BACKING_MIN_LEVEL. Threshold *selection* in
+# this mode is Otsu, not a fixed ratio (see extraction_channel) -- there's only
+# one backlit scan's worth of data so far (Session 14), not enough to calibrate
+# a ratio the way THRESHOLD_RATIO was. This constant currently only bounds the
+# backing_level() diagnostic reading, not the actual mask threshold.
+BACKING_MAX_LEVEL_SAT = 120
+
 # ---------------------------------------------------------------- geometry
 # Scanner x/y scale anisotropy, from the square target scanned at 0 and 90 degrees.
 # Two independent estimates agreed to 0.04%. Multiply y by this to match x.
