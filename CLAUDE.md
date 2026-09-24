@@ -407,6 +407,88 @@ New idea: use actual astronomical star positions to determine where puzzle piece
 
 ## CURRENT STATUS — read this first
 
+**2026-09-23 (Session 15): the proper two-pass backlit capture ran. Edge SHARPNESS improved
+as predicted (162 µm vs the flatbed's 184 µm on the same 15 pieces, best piece 72 µm) — but
+edge-to-edge DISCRIMINATION got WORSE (top-5 6/20 vs the flatbed's 11/20 through identical
+code). Root cause found and measured, and it is fixable: the backlit boundary is
+COLOUR-DEPENDENT. Bonus: all 15 pieces identified and their true layout reconstructed,
+15/15.**
+
+- **Capture: `Outline work/i01a-known.png` + `i01b-known.png`** — the 15 T03 pieces, face-down
+  on the glass, iPad panel on top, second pass turned 180°, printed fiducial dots and an
+  "ipad-01" label rendered into the displayed image itself. No iPad UI chrome in frame this
+  time (the thing that forced a hand-picked crop last session). This is the fair two-pass
+  test Session 14 asked for.
+- **Extraction needed real work before any of this was measurable.** Three gotchas, all
+  specific to photographing a lit panel: (1) the blue painter's tape around the iPad is
+  highly saturated, so a global saturation threshold merges tape + pieces into one 33M-px
+  blob — the panel must be isolated first (find the large bright, desaturated region; crop
+  with a generous inset, ~130 px, or the black bezel leaks in and bridges everything); (2)
+  the glossy screen carries dark reflection patches BETWEEN pieces in pass A, so a global
+  "saturated OR dark" rule bridges pieces through them — pass B was clean, so this is not
+  reproducible pass-to-pass; (3) a per-piece local window re-segmentation fixes (2) but its
+  components get clipped by the window edge, putting straight rectangular spurs on the
+  contour — reject any component reaching the window border. **Settled on saturation-seeded
+  extraction with ONE rule applied identically to both passes: 15/15, zero merges.** Mixing
+  rules between passes is actively harmful — a first attempt that fell back per-piece gave
+  wildly bimodal residuals (2.3 px to 15.8 px) purely from A and B being segmented
+  differently.
+- **Repeatability: genuinely improved.** Two-pass ICP boundary agreement on the same 15
+  physical pieces, identical code both ways — OLD flatbed (magenta card, red channel)
+  **4.35 px = 184 µm**, NEW backlit (panel, saturation) **3.83 px = 162 µm**, and the
+  best-extracted piece hit **1.71 px = 72 µm**, less than half the flatbed's best (3.83 px).
+  Removing the shadow ramp does exactly what Session 14 predicted for edge sharpness.
+- **Whole-piece re-identification: 15/15 for BOTH methods** — and, more usefully, 15/15
+  CROSS-method (backlit contours matched against the DB's flatbed contours of the same
+  pieces), with all 15 independently agreeing on the same ~-90° rotation to ±7°. Margins
+  (best impostor − true) ran +3.9 to +17.8 px. **This is a real new capability worth
+  remembering: `geometry.icp_register` on whole contours re-identifies a physical piece
+  across completely different capture methods.** That directly solves the Session 10 pain
+  point of "which rescanned piece is which" — no colour/topology guesswork needed.
+  BUT it is a saturated test (the flatbed already scored 15/15), so it cannot show a
+  discrimination *gain*.
+- **Edge-to-edge discrimination — the actual question — got WORSE.** Same 20 known T03
+  joins, same `Scan.match`, identical code path, pieces identified automatically (above) and
+  edge directions recovered from the ICP rotation:
+
+  | | true mate found | top-5 | median rank | true-join fit |
+  |---|---|---|---|---|
+  | OLD flatbed | 19/20 | **11/20** | 5.0 | 12.3 px |
+  | NEW backlit | 18/20 | **6/20** | 9.5 | 15.4 px |
+
+  This reproduces Session 14's 6/20 — so **that number was NOT an artifact of the rushed
+  single-pass capture.** The backlit-vs-flatbed gap is real and repeatable.
+- **ROOT CAUSE, measured: the backlit boundary position depends on the piece's own colour.**
+  `corr(piece core lightness, extracted-area ratio vs its DB counterpart) = +0.752`
+  (saturation: +0.560). Area ratio runs **0.891 for the darkest pieces to 1.012 for the
+  brightest** (mean 0.962, sd 0.027). Contrast the magenta card, where every piece — teal or
+  black — sits far below the red threshold, so the crossing is set by the *card's* shadow
+  ramp, identical for all pieces: inflated outward ~0.5 mm but **uniformly**.
+- **The durable lesson: a UNIFORM boundary bias is harmless for matching; a VARIABLE one is
+  fatal.** A uniform bias cancels when two edges are compared (and `match.py` already
+  self-calibrates the TAB−BLANK component of it). A colour-dependent bias does not: piece
+  X's edge is displaced by X's colour and its true mate Y's edge by Y's, so the two halves
+  of a real join stop agreeing geometrically. This also explains the otherwise-paradoxical
+  result above — whole-piece ICP survives a near-constant per-piece bias (and both passes
+  see the *same* piece), which is why re-ID stayed 15/15 while edge matching fell apart.
+- **The fix is specific and physical, not algorithmic.** Saturation had to be used because
+  luminance cannot separate anything in this capture: **panel background L = 152 (pass A) /
+  164 (pass B) while piece cores run L = 108–154** — the brightest pieces are *as bright as
+  the panel*. Session 14's plan actually called for a true SILHOUETTE (background blown out,
+  every piece uniformly dark regardless of its own colour); an iPad at max brightness seen
+  through scanner glass does not get there. **Target: background ~240–250 with pieces
+  staying under ~150, then threshold LUMINANCE on a fixed ratio** — colour-independent
+  boundary AND no shadow ramp. Means a brighter panel (the Gepe Slimlite already on hand, or
+  an A4 LED tracing pad) and/or dropping the scanner's exposure so pieces darken while the
+  panel stays pinned high. Until that is tried, **do NOT conclude shape is die-limited** —
+  this test measured a capture defect, not the die.
+- **Bonus, delivered:** the 15 pieces were reassembled into their true 3-7-5 T03 layout
+  automatically (identify → rotate by the recovered ICP angle → place at the DB grid cell).
+  Tabs and blanks line up between neighbours.
+- Scratch scripts (panel extraction, re-ID sweep, edge-rank harness) were exploratory and
+  deleted per the usual convention; findings are all captured here. No permanent code
+  changed this session — `Scan/scan.py`'s `'saturation'` mode from Session 14 was used as-is.
+
 **2026-09-20 (Session 14, consult with Claude Fable in Cowork): PROJECT RESUMED with one
 cheap go/no-go experiment — backlit silhouette scans to test whether shape matching is
 noise-limited (recoverable) or die-limited (dead). No code changed this session.**
@@ -863,9 +945,26 @@ across 36 pieces.
   it. Net boundary repeatability is still 172 µm mean / 221 µm worst — stable, just not
   zero-offset. One more small contributor to why shape matching underperforms here: the
   compared outline is piece-plus-shadow, not the piece.
+- **A UNIFORM boundary bias is harmless for matching; a VARIABLE one is fatal** (Session 15,
+  measured). The magenta-card method's ~0.5 mm outward inflation applies equally to every
+  piece — teal or black all sit far below the red threshold, so the crossing is set by the
+  card's shadow ramp, not by the piece — and a constant offset cancels when two edges are
+  compared. The backlit-panel/saturation method removes the ramp (sharper edge: 162 µm
+  two-pass agreement vs 184 µm) but makes the boundary depend on the piece's own colour:
+  `corr(piece core lightness, extracted area ratio) = +0.752`, area ratio 0.891 (darkest)
+  to 1.012 (brightest). Edge matching then *degrades* (top-5 11/20 → 6/20) even though
+  whole-piece ICP re-identification is unaffected (15/15 either way) — a near-constant
+  per-piece bias barely moves a whole-perimeter fit, but it wrecks the comparison of one
+  piece's edge against a *different* piece's edge. **When judging a new capture method,
+  measure the SPREAD of the boundary bias across pieces, not just its sharpness.**
 - **Contour comparison MUST use rigid ICP**, not centroid-align-then-rotate. The arc-length
   centroid of a tabbed contour is not its area centroid, and the leftover translation
   masquerades as uniform dilation. Proper ICP took the residual from 17 px to 4 px.
+- **Whole-contour ICP re-identifies a physical piece across different capture methods**
+  (Session 15): backlit-panel contours matched against the DB's flatbed contours of the same
+  15 pieces, 15/15 correct, margins +3.9 to +17.8 px, all agreeing on the same rotation to
+  ±7°. Use this instead of colour/topology guesswork when working out which rescanned piece
+  is which (the Session 10 problem).
 - **Blue backing is worse than red** (95 vs 116 levels of separation), and teal pieces sit
   close to blue. Magenta/red only.
 - Anisotropy at 0.228% is ~0.43 px on a 190 px tab feature — real, but well under the 4 px
